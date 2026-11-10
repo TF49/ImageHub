@@ -64,7 +64,7 @@ import { CanvasPage } from "./canvas/CanvasPage";
 import { API_KEY_MIN_LENGTH, COMMON_AGENT_NEGATIVE_PROMPT, INDUSTRY_AGENTS, PROMPT_STARTERS, STYLE_ENHANCEMENT_PRESETS, fetchAppConfig, normalizeApiBaseUrl, runtimeEndpoints, runtimeIndustryAgents, runtimeModelConfig, runtimeModelDisplayName, runtimeModelIds, runtimePromptStarters, runtimeStylePresets, runtimeTokenGuide } from "./shared/appConfig";
 import { RECIPES_LIMIT, RECIPES_STORE, REFERENCE_LIBRARY_LIMIT, REFERENCE_LIBRARY_STORE, STORE_NAME, idbDelete, listRecipes, listReferenceLibrary, openDb, saveRecipe, saveReferenceLibraryItem } from "./shared/db";
 import { FullImageError, blobToDataUrl, createListThumbnail, createSquareThumbnail, generatedImageToBlob, getImageSize } from "./shared/imageUtils";
-import { ASPECT_RATIOS, DEFAULT_IMAGE_RESOLUTION, GEMINI_3_PRO_IMAGE_MODEL, GPT_IMAGE_2_MODEL, GPT_IMAGE_2_PRO_MODEL, GPT_IMAGE_2_FAMILY_MODEL, IMAGE_RESOLUTIONS, PROTOCOLS, SIZE_BY_RATIO, aspectRatioNumber, explicitSizeOptionsForModel, getProtocolDefinition, getSupportedAspectRatios, gptImage2SizeOptionForSize, imageModelLaneLabel, isGemini3ProImageModel, isGptImage2Model, isGptImage2ProModel, isImageResolution, normalizedImageModelId, resolveRequestSize, safeImageResolution, scaleSize, supportsGptImage2ExplicitSizes, usesOfficialGptImageSizing } from "./shared/modelSizing";
+import { ASPECT_RATIOS, DEFAULT_IMAGE_RESOLUTION, GPT_IMAGE_2_MODEL, IMAGE_RESOLUTIONS, PROTOCOLS, SIZE_BY_RATIO, aspectRatioNumber, explicitSizeOptionsForModel, getProtocolDefinition, getSupportedAspectRatios, gptImage2SizeOptionForSize, isGemini3ProImageModel, isGptImage2Model, isGptImage2ProModel, looksLikeImageModel, isImageResolution, normalizedImageModelId, resolveRequestSize, safeImageResolution, scaleSize, supportsGptImage2ExplicitSizes, usesOfficialGptImageSizing } from "./shared/modelSizing";
 import { GenerationSubmissionError, fetchGenerationTasks, reportGenerationClientEvent, submitGenerationTask } from "./shared/generationTasks";
 import type { ApiConfig, CanvasImportPayload, GenerationLifecycleEvent, GenerationSubmissionBody, ImageParams, ImageProtocol, ImageResolution, IndustryAgent, JobStages, ModelLoadState, PromptVariant, Recipe, ReferenceLibraryItem, ServerGenerationTask, SquareFeedItem, SquareRecommendResponse, StyleEnhancement, SubmittedReference, UploadedReference } from "./shared/types";
 import { clampNumber, formatBytes, formatDuration, getClientId, readApiJson, truncateForLog, uid } from "./shared/utils";
@@ -608,7 +608,6 @@ const CURRENT_FRONTEND_VERSION = typeof __FRONTEND_BUILD_VERSION__ === "string"
   ? __FRONTEND_BUILD_VERSION__
   : "dev";
 const DEFAULT_PROTOCOL: ImageProtocol = "custom-openai";
-const PRIMARY_IMAGE_MODELS = [GPT_IMAGE_2_MODEL, GEMINI_3_PRO_IMAGE_MODEL] as const;
 const SUPPORTED_REFERENCE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 
@@ -2101,25 +2100,20 @@ function loadInitialParams(): ImageParams {
   }
 }
 
+// 方案 B：后台白名单内的模型照常允许；白名单外只要名称是生图模型也允许。
+// 用户能看到哪些模型由上游 /models 真实返回决定，白名单只决定排序和展示名。
 function isAllowedImageModel(model: string) {
-  const configured = runtimeModelIds();
-  if (configured.size > 0) {
-    return configured.has(model.replace(/^models\//, "").trim().toLowerCase());
-  }
-  return isGptImage2Model(model) || isGemini3ProImageModel(model);
+  const normalized = model.replace(/^models\//, "").trim().toLowerCase();
+  if (runtimeModelIds().has(normalized)) return true;
+  return isGptImage2Model(model) || isGemini3ProImageModel(model) || looksLikeImageModel(model);
 }
 
+// 后台配置过的模型按配置顺序排在前面；其余按名称排序。
 function imageModelPriority(model: string) {
   const normalized = normalizedImageModelId(model);
-  if (runtimeModelConfig.length > 0) {
-    const index = runtimeModelConfig.findIndex((m) => m.id.replace(/^models\//, "").trim().toLowerCase() === normalized);
-    return index >= 0 ? index : 100;
-  }
-  if (normalized === GPT_IMAGE_2_MODEL) return 0;
-  if (normalized === GPT_IMAGE_2_PRO_MODEL) return 1;
-  if (normalized === GPT_IMAGE_2_FAMILY_MODEL) return 2;
-  if (normalized === GEMINI_3_PRO_IMAGE_MODEL) return 3;
-  return 10;
+  const index = runtimeModelConfig.findIndex((m) => m.id.replace(/^models\//, "").trim().toLowerCase() === normalized);
+  if (index >= 0) return index;
+  return normalized === GPT_IMAGE_2_MODEL ? 50 : 100;
 }
 
 function filterAllowedImageModels(models: string[]) {
@@ -2131,33 +2125,18 @@ function filterAllowedImageModels(models: string[]) {
     });
 }
 
+// 保留用户当前选择；否则取排序后的第一个（即上游真实返回里优先级最高的）
 function preferModel(models: string[], current: string) {
   const allowedModels = filterAllowedImageModels(models);
-  if (current && allowedModels.includes(current) && isAllowedImageModel(current)) return current;
-  return (
-    allowedModels.find((model) => normalizedImageModelId(model) === GPT_IMAGE_2_MODEL) ||
-    allowedModels.find((model) => normalizedImageModelId(model) === GPT_IMAGE_2_FAMILY_MODEL) ||
-    allowedModels.find((model) => normalizedImageModelId(model) === GEMINI_3_PRO_IMAGE_MODEL) ||
-    allowedModels[0] ||
-    ""
-  );
+  if (current && allowedModels.includes(current)) return current;
+  return allowedModels[0] || "";
 }
 
-// 只取上游真实返回、且在白名单内、且与当前协议匹配的生图模型。
+// 只取上游真实返回、且是生图模型、且与当前协议匹配的模型。
 // 这是「用户这把 Key 到底能不能生图」的唯一判据。
 function upstreamImageModels(protocol: ImageProtocol, upstreamModels: string[] = []) {
   return filterAllowedImageModels(upstreamModels)
     .filter((model) => protocolMatchesImageModel(protocol, model));
-}
-
-// 含协议默认模型的列表，仅用于「尚未验证 Key」时的界面预览。
-// 注意：绝不能拿它当作可生成的依据——默认模型是本地常量，
-// 用户的 Key 未必有权限，混进去会让按钮可点、点了却在上游失败。
-function imageModelsForProtocol(protocol: ImageProtocol, upstreamModels: string[] = []) {
-  return filterAllowedImageModels([
-    ...upstreamModels,
-    ...getProtocolDefinition(protocol).defaultModels,
-  ]).filter((model) => protocolMatchesImageModel(protocol, model));
 }
 
 function normalizedModelId(model: string) {
@@ -2821,26 +2800,21 @@ export default function App() {
 
   const selectableImageModels = useMemo(
     () => {
-      // Key 已验证：只列出「后台白名单 ∩ 这把 Key 实际可用」的模型。
-      // 列白名单全量会让用户选到自己没权限的模型，点了才在上游失败。
+      // Key 已验证：列出这把 Key 上游真实返回的全部生图模型（models 已由
+      // upstreamImageModels 过滤并按「白名单在前」排序），不再与白名单取交集。
       if (isModelConnectionVerified && models.length > 0) {
-        if (runtimeModelConfig.length > 0) {
-          const owned = new Set(models.map((m) => normalizedModelId(m)));
-          return runtimeModelConfig.map((m) => m.id).filter((id) => owned.has(normalizedModelId(id)));
-        }
         return models;
       }
-      // 未验证时展示白名单全量，仅供预览（此时 canGenerate 本就为 false）
-      if (runtimeModelConfig.length > 0) {
-        return runtimeModelConfig.map((m) => m.id);
-      }
-      return filterAllowedImageModels([...models, ...PRIMARY_IMAGE_MODELS]);
+      // 未验证时不展示任何模型：白名单只是"站点允许"，不代表这把 Key 拥有，
+      // 预先列出会让用户以为 gpt-image-2-pro / gemini 等都能用
+      return [];
     },
     // configVersion 参与依赖：配置拉取完成后重新计算，剔除非白名单模型
     [models, configVersion, isModelConnectionVerified],
   );
   const filteredModels = useMemo(() => {
-    const query = modelFilter.trim().toLowerCase();
+    // 筛选框只在模型超过 6 个时出现；隐藏时忽略残留的筛选词
+    const query = selectableImageModels.length > 6 ? modelFilter.trim().toLowerCase() : "";
     return selectableImageModels
       .filter((model) => model.toLowerCase().includes(query))
       .slice(0, 80);
@@ -4318,10 +4292,7 @@ export default function App() {
       const nextModels = upstreamImageModels(config.protocol, upstreamModels);
       const nextAnalysisModels = filterAnalysisModels(upstreamModels);
       if (nextModels.length === 0) {
-        const allowed = runtimeModelConfig.length > 0
-          ? runtimeModelConfig.map((m) => m.displayName || m.id).slice(0, 4).join("、")
-          : "gpt-image-2 系列";
-        throw new Error(`该 API Key 下没有可用的生图模型（需要 ${allowed} 之一），请更换 Key 或联系服务商开通`);
+        throw new Error("该 API Key 下没有可用的生图模型，请更换 Key 或联系服务商开通");
       }
       const nextSelectedModel = preferModel(nextModels, selectedModel);
       const nextSelectedAnalysisModel = preferAnalysisModel(nextAnalysisModels, selectedAnalysisModel);
@@ -4427,10 +4398,12 @@ export default function App() {
       if (!response.ok || !payload.ok) {
         throw payload.detail || payload;
       }
-      const nextModels = imageModelsForProtocol(apiConfig.protocol, Array.isArray(payload.models) ? payload.models : []);
-      const nextAnalysisModels = filterAnalysisModels(Array.isArray(payload.models) ? payload.models : []);
+      // 与 loadModels 同一判据：只认上游真实返回的生图模型，不混入协议默认模型
+      const upstreamModels = Array.isArray(payload.models) ? payload.models : [];
+      const nextModels = upstreamImageModels(apiConfig.protocol, upstreamModels);
+      const nextAnalysisModels = filterAnalysisModels(upstreamModels);
       if (nextModels.length === 0) {
-        throw new Error("未找到可用的图片模型");
+        throw new Error("该 API Key 下没有可用的生图模型，请更换 Key 或联系服务商开通");
       }
       setVerifiedModelKey(modelLoadKey);
       setVerifiedModelAt(Date.now());
@@ -6121,9 +6094,8 @@ export default function App() {
   }
 
   function changeProtocol(protocol: ImageProtocol) {
+    if (protocol === apiConfig.protocol) return;
     const nextDefinition = getProtocolDefinition(protocol);
-    const nextModels = imageModelsForProtocol(protocol, nextDefinition.defaultModels);
-    const nextAnalysisModels = filterAnalysisModels(nextDefinition.defaultModels);
     setApiConfig((current) => {
       return {
         ...current,
@@ -6131,16 +6103,15 @@ export default function App() {
         baseUrl: normalizeApiBaseUrl(current.baseUrl),
       };
     });
-    setModels(nextModels);
-    setSelectedModel((current) => preferModel(nextModels, current));
-    setAnalysisModels(nextAnalysisModels);
-    setSelectedAnalysisModel((current) => preferAnalysisModel(nextAnalysisModels, current));
+    // 换协议后旧的模型列表作废，等自动验证用新协议的上游真实列表填充
+    setVerifiedModelKey("");
+    setVerifiedModelAt(0);
+    setModels([]);
+    setSelectedModel((current) => (protocolMatchesImageModel(protocol, current) ? current : ""));
+    setAnalysisModels([]);
+    setSelectedAnalysisModel("");
     setModelFilter("");
-    setModelState(
-      nextModels.length > 0
-        ? { status: "idle", message: `${nextModels.length} 个预设图片模型，等待验证` }
-        : { status: "idle", message: "等待读取图片模型" },
-    );
+    setModelState({ status: "idle", message: `已切换到 ${nextDefinition.shortLabel}，等待自动验证` });
   }
 
   function selectImageModel(model: string) {
@@ -6149,18 +6120,20 @@ export default function App() {
     const nextProtocol = protocolForImageModel(nextModel, apiConfig.protocol);
     const protocolChanged = nextProtocol !== apiConfig.protocol;
     const nextDefinition = getProtocolDefinition(nextProtocol);
-    const nextModels = imageModelsForProtocol(nextProtocol, [...models, nextModel]);
-    const nextAnalysisModels = filterAnalysisModels(nextDefinition.defaultModels);
     if (protocolChanged) {
+      // 切换通道后验证已失效，自动验证会用新通道的上游真实列表重新填充
       setVerifiedModelKey("");
       setVerifiedModelAt(0);
-      setAnalysisModels(nextAnalysisModels);
-      setSelectedAnalysisModel((current) => preferAnalysisModel(nextAnalysisModels, current));
+      setModels([]);
+      setAnalysisModels([]);
+      setSelectedAnalysisModel("");
       setModelState({
         status: "idle",
         message: `已切换到 ${nextDefinition.shortLabel} 通道，等待自动验证`,
       });
     }
+    // 同通道选模型时不动 models：它是这把 Key 的上游真实列表，混入默认模型
+    // 会让已验证的 Key 凭空"拥有"没权限的模型，canGenerate 随之误放行
     setApiConfig((current) => {
       if (current.protocol === nextProtocol) return current;
       return {
@@ -6169,7 +6142,6 @@ export default function App() {
         baseUrl: normalizeApiBaseUrl(current.baseUrl),
       };
     });
-    setModels(nextModels);
     setSelectedModel(nextModel);
     setModelFilter("");
     setParams((current) => {
@@ -7988,43 +7960,71 @@ export default function App() {
           </div>
         </section>
 
-        <section className="settings-section" data-onboarding-target="model">
-          <div className="section-label with-note">
+        <section className="settings-section model-picker" data-onboarding-target="model">
+          <div className="model-picker-head">
             <span>可用生图模型</span>
-            <small>支持 GPT Image 2 与 Gemini 3 Pro Image Preview，选择后自动切换接口格式</small>
+            {selectableImageModels.length > 0 && (
+              <span className="model-picker-count">{selectableImageModels.length}</span>
+            )}
           </div>
-          <div className="search-input">
-            <Search size={16} />
-            <input
-              value={modelFilter}
-              placeholder="筛选模型"
-              onChange={(event) => setModelFilter(event.target.value)}
-            />
-          </div>
-          <div className="model-list">
+          <p className="model-picker-note">以当前 API Key 实际拥有的模型为准</p>
+          {/* 模型不多时筛选框只是噪声，超过 6 个才出现 */}
+          {selectableImageModels.length > 6 && (
+            <div className="search-input">
+              <Search size={16} />
+              <input
+                value={modelFilter}
+                placeholder="筛选模型"
+                onChange={(event) => setModelFilter(event.target.value)}
+              />
+            </div>
+          )}
+          <div className="model-list" role="radiogroup" aria-label="可用生图模型">
             {filteredModels.length === 0 ? (
               <div className="muted-box">
-                {selectableImageModels.length === 0 ? "暂无可用图片模型" : "无匹配模型"}
+                {selectableImageModels.length > 0
+                  ? "无匹配模型"
+                  : apiConfig.apiKey.trim().length < API_KEY_MIN_LENGTH
+                    ? "填写 API Key 后显示可用模型"
+                    : modelState.status === "loading" || isAutoLoadingModels
+                      ? "正在读取这把 Key 的可用模型…"
+                      : modelState.status === "error"
+                        ? modelState.message || "API Key 验证失败"
+                        : isModelConnectionVerified
+                          ? "该 API Key 下没有可用的生图模型"
+                          : "等待 API Key 验证"}
               </div>
             ) : (
-              filteredModels.map((model) => (
-                <button
-                  type="button"
-                  key={model}
-                  className={selectedModel === model ? "selected" : ""}
-                  onClick={() => selectImageModel(model)}
-                >
-                  <span>{model}</span>
-                  <small>
-                    {imageModelLaneLabel(model)}
-                    {(() => {
-                      const stat = modelStats[normalizedModelId(model)];
-                      if (!stat || stat.samples < 3) return null;
-                      return ` · 近7日成功率 ${stat.successRate}% · P50 ${formatCompactDuration(stat.p50DurationMs)}`;
-                    })()}
-                  </small>
-                </button>
-              ))
+              filteredModels.map((model) => {
+                const isSelected = selectedModel === model;
+                const displayName = runtimeModelDisplayName(model);
+                const stat = modelStats[normalizedModelId(model)];
+                const statText = stat && stat.samples >= 3
+                  ? `成功率 ${stat.successRate}% · 约 ${formatCompactDuration(stat.p50DurationMs)}`
+                  : "";
+                const meta = [displayName !== model ? displayName : "", statText].filter(Boolean).join(" · ");
+                const sizeTag = supportsGptImage2ExplicitSizes(model)
+                  ? "2K/4K"
+                  : isGptImage2Model(model) ? "1K" : "";
+                return (
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
+                    key={model}
+                    className={`model-option${isSelected ? " selected" : ""}`}
+                    onClick={() => selectImageModel(model)}
+                    title={model}
+                  >
+                    <span className="model-option-radio" aria-hidden="true" />
+                    <span className="model-option-body">
+                      <span className="model-option-name">{model}</span>
+                      {meta && <small className="model-option-meta">{meta}</small>}
+                    </span>
+                    {sizeTag && <span className="model-option-tag">{sizeTag}</span>}
+                  </button>
+                );
+              })
             )}
           </div>
         </section>
@@ -8475,7 +8475,7 @@ function AdminConfigCenter() {
                 </div>
               ))}
             </div>
-            <p className="admin-muted admin-config-hint"><ShieldCheck size={13} /> 模型为精确匹配名单；站点地址支持 http/https 与 IP，但内网、回环及云元数据地址（127.x / 192.168.x / 169.254.x 等）会被拒绝。所有变更写入审计日志并递增版本号。</p>
+            <p className="admin-muted admin-config-hint"><ShieldCheck size={13} /> 用户能用哪些模型以其 API Key 在上游的真实返回为准，这里配置的模型只决定排序与展示名；站点地址支持 http/https 与 IP，但内网、回环及云元数据地址（127.x / 192.168.x / 169.254.x 等）会被拒绝。所有变更写入审计日志并递增版本号。</p>
             <button type="button" className="primary-button admin-config-save" disabled={saving === "模型白名单"} onClick={() => void saveSection("models", { models }, "模型白名单")}>
               {saving === "模型白名单" ? <Loader2 size={15} className="spin" /> : <Save size={15} />} 保存模型
             </button>

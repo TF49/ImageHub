@@ -111,7 +111,6 @@ export const PROTOCOLS: Array<{
   shortLabel: string;
   description: string;
   defaultBaseUrl: string;
-  defaultModels: string[];
   supportedAspectRatios: string[];
   supportsReferenceImages: boolean;
   supportsNegativePrompt: boolean;
@@ -124,7 +123,6 @@ export const PROTOCOLS: Array<{
     shortLabel: "兼容协议",
     description: "适合第三方中转或自建 OpenAI 风格图片接口",
     defaultBaseUrl: DEFAULT_API_URL,
-    defaultModels: [GPT_IMAGE_2_MODEL, GPT_IMAGE_2_PRO_MODEL, GPT_IMAGE_2_FAMILY_MODEL],
     supportedAspectRatios: ALL_ASPECT_RATIOS,
     supportsReferenceImages: true,
     supportsNegativePrompt: true,
@@ -137,7 +135,6 @@ export const PROTOCOLS: Array<{
     shortLabel: "OpenAI",
     description: "OpenAI 风格 Images API，宽高比会转换为 size 参数",
     defaultBaseUrl: DEFAULT_API_URL,
-    defaultModels: [GPT_IMAGE_2_MODEL, GPT_IMAGE_2_PRO_MODEL, GPT_IMAGE_2_FAMILY_MODEL],
     supportedAspectRatios: OPENAI_ASPECT_RATIOS,
     supportsReferenceImages: true,
     supportsNegativePrompt: true,
@@ -150,7 +147,6 @@ export const PROTOCOLS: Array<{
     shortLabel: "Responses",
     description: "适合对话式生成和后续多轮改图",
     defaultBaseUrl: DEFAULT_API_URL,
-    defaultModels: ["gpt-4.1", "gpt-4.1-mini"],
     supportedAspectRatios: OPENAI_ASPECT_RATIOS,
     supportsReferenceImages: false,
     supportsNegativePrompt: true,
@@ -163,7 +159,6 @@ export const PROTOCOLS: Array<{
     shortLabel: "Gemini",
     description: "Google Gemini 原生 generateContent 生图/改图",
     defaultBaseUrl: DEFAULT_API_URL,
-    defaultModels: [GEMINI_3_PRO_IMAGE_MODEL, "gemini-2.5-flash-image", "gemini-2.0-flash-preview-image-generation"],
     supportedAspectRatios: [...GEMINI_3_PRO_SUPPORTED_ASPECT_RATIOS],
     supportsReferenceImages: true,
     supportsNegativePrompt: true,
@@ -176,7 +171,6 @@ export const PROTOCOLS: Array<{
     shortLabel: "Gemini 兼容",
     description: "Gemini 的 OpenAI 兼容接口，适合快速迁移",
     defaultBaseUrl: DEFAULT_API_URL,
-    defaultModels: ["gemini-2.5-flash-image"],
     supportedAspectRatios: OPENAI_ASPECT_RATIOS,
     supportsReferenceImages: false,
     supportsNegativePrompt: true,
@@ -189,7 +183,6 @@ export const PROTOCOLS: Array<{
     shortLabel: "Imagen",
     description: "Imagen 系列文生图，比例范围较明确",
     defaultBaseUrl: DEFAULT_API_URL,
-    defaultModels: ["imagen-4.0-generate-001", "imagen-4.0-ultra-generate-001", "imagen-3.0-generate-002"],
     supportedAspectRatios: IMAGEN_ASPECT_RATIOS,
     supportsReferenceImages: false,
     supportsNegativePrompt: true,
@@ -202,7 +195,6 @@ export const PROTOCOLS: Array<{
     shortLabel: "Stability",
     description: "Stability AI Stable Image Core/Ultra 风格接口",
     defaultBaseUrl: DEFAULT_API_URL,
-    defaultModels: ["stable-image-core"],
     supportedAspectRatios: STABILITY_ASPECT_RATIOS,
     supportsReferenceImages: false,
     supportsNegativePrompt: true,
@@ -217,6 +209,12 @@ export function getProtocolDefinition(protocol: ImageProtocol) {
 
 export function normalizedImageModelId(model = "") {
   return model.replace(/^models\//, "").trim().toLowerCase();
+}
+
+// 按名称判断上游返回的模型是不是生图模型（方案 B：不再要求在后台白名单内）。
+// 与 vite.config.ts 的 looksLikeImageModel 保持一致。
+export function looksLikeImageModel(model = "") {
+  return /image|imagen|dall-e|flux|seedream|banana/.test(normalizedImageModelId(model));
 }
 
 export function isGptImage2Model(model = "") {

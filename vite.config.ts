@@ -500,13 +500,15 @@ interface OAuthSessionData {
 const oauthSessions = new Map<string, OAuthSessionData>();
 const oauthPendingStates = new Map<string, { expiresAt: number }>();
 
+// 各协议的预设模型。只有 stability-core 真正用到（它没有模型列表接口）；
+// 其余协议一律以上游 /models 的真实返回为准，不预置任何模型名。
 const DEFAULT_MODELS: Record<ImageProtocol, string[]> = {
-  "custom-openai": [GPT_IMAGE_2_MODEL, GPT_IMAGE_2_PRO_MODEL, GPT_IMAGE_2_FAMILY_MODEL],
-  "openai-images": [GPT_IMAGE_2_MODEL, GPT_IMAGE_2_PRO_MODEL, GPT_IMAGE_2_FAMILY_MODEL],
-  "openai-responses": ["gpt-4.1", "gpt-4.1-mini"],
-  "gemini-native": [GEMINI_3_PRO_IMAGE_MODEL, "gemini-2.5-flash-image", "gemini-2.0-flash-preview-image-generation"],
-  "gemini-openai": ["gemini-2.5-flash-image"],
-  "google-imagen": ["imagen-4.0-generate-001", "imagen-4.0-ultra-generate-001", "imagen-3.0-generate-002"],
+  "custom-openai": [],
+  "openai-images": [],
+  "openai-responses": [],
+  "gemini-native": [],
+  "gemini-openai": [],
+  "google-imagen": [],
   "stability-core": ["stable-image-core", "stable-image-ultra"],
 };
 
@@ -754,11 +756,10 @@ function defaultConfigStore(): ConfigStore {
       { id: "taiji", name: "太极 AI", baseUrl: "https://www.taijiai.online/", enabled: true, note: "主服务地址", sort: 1 },
       { id: "bobdong", name: "BobDong", baseUrl: "https://bobdong.cn/", enabled: true, note: "备用服务地址", sort: 2 },
     ],
+    // 只预置一个确定存在的模型：方案 B 下用户能看到哪些模型由上游 /models 决定，
+    // 这里只影响排序和展示名；预置不存在的模型只会让后台误以为它们可用
     models: [
       { id: GPT_IMAGE_2_MODEL, displayName: "GPT Image 2", sizing: "explicit-2k4k", enabled: true, sort: 1, tags: ["2K", "4K"] },
-      { id: GPT_IMAGE_2_PRO_MODEL, displayName: "GPT Image 2 Pro", sizing: "explicit-2k4k", enabled: true, sort: 2, tags: ["2K", "4K"] },
-      { id: GPT_IMAGE_2_FAMILY_MODEL, displayName: "GPT 5.4 Image 2", sizing: "official-1k", enabled: true, sort: 3, tags: [] },
-      { id: GEMINI_3_PRO_IMAGE_MODEL, displayName: "Gemini 3 Pro Image", sizing: "official-1k", enabled: true, sort: 4, tags: [] },
     ],
     presets: {
       promptStarters: null,
@@ -3337,6 +3338,12 @@ function isGemini3ProImageModel(model = "") {
   return normalizedModelId(model) === GEMINI_3_PRO_IMAGE_MODEL;
 }
 
+// 按名称判断是不是生图模型（方案 B：白名单外的生图模型也放行）。
+// 与 src/shared/modelSizing.ts 的 looksLikeImageModel 保持一致。
+function looksLikeImageModel(model = "") {
+  return /image|imagen|dall-e|flux|seedream|banana/.test(normalizedModelId(model));
+}
+
 function dataUrlToGeminiPart(image: ReferenceImage) {
   const [meta, data = ""] = image.dataUrl.split(",");
   const mimeType = image.type || meta.match(/^data:(.*?);base64$/)?.[1] || "image/png";
@@ -4912,6 +4919,10 @@ async function generateStability(baseUrl: string, apiKey: string, request: Gener
   };
 }
 
+// 只返回上游 /models 真实列出的模型 —— 前端拿它判断「这把 Key 能用哪些模型」。
+// 不要把 DEFAULT_MODELS 混进来：混入后任何能列模型的 Key 都会凭空"拥有"
+// gpt-image-2-pro 等模型，用户选了才在上游失败。
+// 唯一例外是 stability-core：它没有模型列表接口，只能用预设。
 async function loadUpstreamModels(protocol: ImageProtocol, baseUrl: string, apiKey: string) {
   if (!apiKey || protocol === "stability-core") {
     return { models: DEFAULT_MODELS[protocol], raw: { source: "preset" } };
@@ -4929,7 +4940,7 @@ async function loadUpstreamModels(protocol: ImageProtocol, baseUrl: string, apiK
     if (protocol === "google-imagen") {
       models = models.filter((model) => model.toLowerCase().includes("imagen"));
     }
-    return { models: [...new Set([...DEFAULT_MODELS[protocol], ...models])], raw: payload };
+    return { models: [...new Set(models)], raw: payload };
   }
 
   const path = protocol === "gemini-openai" ? "/models" : "/v1/models";
@@ -4940,7 +4951,7 @@ async function loadUpstreamModels(protocol: ImageProtocol, baseUrl: string, apiK
   if (!response.ok) throw detailFromUpstream(response.status, text);
   const payload = parseMaybeJson(text);
   const models = extractModelIds(payload, "data");
-  return { models: [...new Set([...DEFAULT_MODELS[protocol], ...models])], raw: payload };
+  return { models: [...new Set(models)], raw: payload };
 }
 
 async function handleSquareFeed(req: IncomingMessage, res: ServerResponse) {
@@ -7385,9 +7396,12 @@ export function registerApiRoutes(app: ApiApp) {
             return;
           }
 
+          // 方案 B：白名单内的模型照常放行；白名单外只要名称是生图模型也放行，
+          // 用户的 Key 有没有该模型由上游判定（前端只列出上游真实返回的模型）
           const allowedModels = enabledModelIds();
-          if (allowedModels.length > 0 && !allowedModels.includes(normalizedModelId(request.model))) {
-            rejectBeforeLog(400, "所选模型不在允许列表中");
+          const requestedModelId = normalizedModelId(request.model);
+          if (allowedModels.length > 0 && !allowedModels.includes(requestedModelId) && !looksLikeImageModel(requestedModelId)) {
+            rejectBeforeLog(400, "所选模型不是生图模型");
             return;
           }
 
