@@ -8681,7 +8681,7 @@ function AdminConfigCenter() {
               <label>中转站名称
                 <input
                   value={tokenGuide.siteName}
-                  placeholder="例如 BobDong"
+                  placeholder="例如 Bob API"
                   onChange={(e) => setTokenGuide((g) => ({ ...g, siteName: e.target.value }))}
                 />
               </label>

@@ -773,8 +773,8 @@ function defaultConfigStore(): ConfigStore {
     },
     tokenGuide: {
       enabled: true,
-      siteName: "BobDong",
-      tokenUrl: "http://216.236.1.196:3000/console/token",
+      siteName: "Bob API",
+      tokenUrl: "https://bob-api.com/key",
       groupName: "banana Pro 官转",
       note: "在令牌管理页新建令牌时，分组选择「banana Pro 官转」，复制生成的 Key 回来填写即可。",
     },
