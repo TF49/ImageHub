@@ -34,6 +34,7 @@ import {
   blobToDataUrl,
   createListThumbnail,
   createSquareThumbnail,
+  describeResultFetchError,
   generatedImageToBlob,
   getImageSize,
 } from "../shared/imageUtils";
@@ -552,11 +553,12 @@ export function CanvasPage({
               if (panelModeRef.current === "optimize" && selectedNodeIdRef.current === node.id) {
                 void enterOptimizeMode(finishedNode);
               }
-            } catch {
-              // 图取不回来（比如已被日志裁剪清理）才判失败
+            } catch (error) {
+              const failure = describeResultFetchError(error);
+              console.error("[画布对账] 取回/保存结果失败", node.requestId, error);
               const imageMissingAt = Date.now();
               setCanvasNodes((prev) => prev.map((n) => n.id === node.id
-                ? { ...n, status: "error" as const, error: "图片已被服务器清理" } : n));
+                ? { ...n, status: "error" as const, error: failure.message } : n));
               void reportGenerationClientEvent({
                 requestId: node.requestId as string,
                 clientId: getClientId(),
@@ -564,7 +566,7 @@ export function CanvasPage({
                 occurredAt: imageMissingAt,
                 surface: "canvas",
                 localRecordId: node.id,
-                detail: "服务端任务成功，但画布无法取回图片文件",
+                detail: `服务端任务成功，但画布取回/保存失败：${failure.diagnostic}`,
               });
             }
           } else if (task.status === "error") {

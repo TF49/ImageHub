@@ -69,7 +69,7 @@ import { NumberStepper, SegmentedControl, SwitchRow } from "./shared/FormControl
 import { CanvasPage } from "./canvas/CanvasPage";
 import { API_KEY_MIN_LENGTH, COMMON_AGENT_NEGATIVE_PROMPT, INDUSTRY_AGENTS, PROMPT_STARTERS, STYLE_ENHANCEMENT_PRESETS, fetchAppConfig, normalizeApiBaseUrl, runtimeEndpoints, runtimeIndustryAgents, runtimeModelConfig, runtimeModelDisplayName, runtimeModelIds, runtimePromptStarters, runtimeStylePresets, runtimeTokenGuide } from "./shared/appConfig";
 import { RECIPES_LIMIT, RECIPES_STORE, REFERENCE_LIBRARY_LIMIT, REFERENCE_LIBRARY_STORE, STORE_NAME, idbDelete, listRecipes, listReferenceLibrary, openDb, saveRecipe, saveReferenceLibraryItem } from "./shared/db";
-import { FullImageError, blobToDataUrl, createListThumbnail, createSquareThumbnail, generatedImageToBlob, getImageSize } from "./shared/imageUtils";
+import { FullImageError, blobToDataUrl, createListThumbnail, createSquareThumbnail, describeResultFetchError, generatedImageToBlob, getImageSize } from "./shared/imageUtils";
 import { ASPECT_RATIOS, DEFAULT_IMAGE_RESOLUTION, GPT_IMAGE_2_MODEL, IMAGE_RESOLUTIONS, PROTOCOLS, SIZE_BY_RATIO, aspectRatioNumber, explicitSizeOptionsForModel, getProtocolDefinition, getSupportedAspectRatios, gptImage2SizeOptionForSize, isGemini3ProImageModel, isGptImage2Model, isGptImage2ProModel, looksLikeImageModel, isImageResolution, normalizedImageModelId, resolveRequestSize, safeImageResolution, scaleSize, supportsGptImage2ExplicitSizes, usesOfficialGptImageSizing } from "./shared/modelSizing";
 import { GenerationSubmissionError, fetchGenerationTasks, reportGenerationClientEvent, submitGenerationTask } from "./shared/generationTasks";
 import type { ApiConfig, CanvasImportPayload, GenerationLifecycleEvent, GenerationSubmissionBody, ImageParams, ImageProtocol, ImageResolution, IndustryAgent, JobStages, ModelLoadState, PromptVariant, Recipe, ReferenceLibraryItem, ServerGenerationTask, SquareFeedItem, SquareRecommendResponse, StyleEnhancement, SubmittedReference, UploadedReference } from "./shared/types";
@@ -3683,12 +3683,13 @@ export default function App() {
                   }))
                   .catch(() => undefined);
               }
-            } catch {
-              // 图取不回来（多半是被日志裁剪清理了）才判失败
+            } catch (error) {
+              const failure = describeResultFetchError(error);
+              console.error("[任务对账] 取回/保存结果失败", job.requestId, error);
               const imageMissingAt = Date.now();
               patchVisibleRecord(job.id, {
                 status: "error",
-                errorDetail: { error: "图片已被服务器清理" },
+                errorDetail: { error: failure.message },
                 finishedAt: imageMissingAt,
               });
               void reportGenerationClientEvent({
@@ -3698,7 +3699,7 @@ export default function App() {
                 occurredAt: imageMissingAt,
                 surface: "studio",
                 localRecordId: job.id,
-                detail: "服务端任务成功，但前端无法取回图片文件",
+                detail: `服务端任务成功，但前端取回/保存失败：${failure.diagnostic}`,
               });
             }
           } else if (task.status === "error") {

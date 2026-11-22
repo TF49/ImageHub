@@ -124,6 +124,22 @@ export class FullImageError extends Error {
   }
 }
 
+// 结果回取失败的分类：只有原图 404 才是"被服务器清理"；
+// 其余多半是浏览器本地解码 / IndexedDB 写入失败（如磁盘满导致配额不足），文案必须区分开
+export function describeResultFetchError(error: unknown): { message: string; diagnostic: string } {
+  const name = error instanceof Error ? error.name : "UnknownError";
+  const raw = error instanceof Error ? error.message : String(error);
+  const diagnostic = `${name}: ${raw}`.slice(0, 200);
+  if (error instanceof FullImageError) {
+    if (error.reason === "purged") return { message: "图片已被服务器清理", diagnostic };
+    return { message: "原图下载失败，请检查网络后刷新重试", diagnostic };
+  }
+  if (name === "QuotaExceededError") {
+    return { message: "浏览器本地存储空间不足，图片未能保存（请清理磁盘或历史记录后刷新重试）", diagnostic };
+  }
+  return { message: "图片已生成，但浏览器本地保存失败，请刷新重试", diagnostic };
+}
+
 export async function generatedImageToBlob(image: { url?: string; dataUrl?: string }): Promise<Blob> {
   if (image.url) {
     let response: Response;
