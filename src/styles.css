@@ -741,11 +741,19 @@ textarea:focus-visible {
   border-radius: var(--r-panel);
   background: var(--surface);
   text-align: left;
-  transition: border-color var(--dur-base) var(--ease);
+  transition:
+    border-color var(--dur-base) var(--ease),
+    box-shadow var(--dur-base) var(--ease);
 }
 
+/* 焦点环画在圆角外框上，输入框自身不画（否则是直角框） */
 .home-composer:focus-within {
-  border-color: var(--border-strong);
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.home-composer textarea:focus-visible {
+  box-shadow: none;
 }
 
 .home-composer textarea {
@@ -2909,7 +2917,7 @@ textarea:focus-visible {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 14px 24px 148px;
+  padding: 14px 24px 164px;
   background: linear-gradient(180deg, var(--surface), var(--bg));
   scrollbar-gutter: stable;
 }
@@ -3812,7 +3820,7 @@ textarea:focus-visible {
   content: "";
   position: absolute;
   z-index: 0;
-  inset: -12px -14px -10px;
+  inset: -14px -14px -10px;
   border: 1px solid rgba(255, 255, 255, 0.62);
   border-radius: 16px;
   background:
@@ -5324,9 +5332,11 @@ textarea:focus-visible {
   scrollbar-width: thin;
 }
 
-/* 外层 .composer-main:focus-within 已有焦点环，输入框自身再画一圈会出现「框中框」 */
+/* 外层 .composer-main:focus-within 已有圆角焦点环，输入框自身再画一圈会出现直角「框中框」
+   （全局 :focus-visible 的环是 box-shadow，不是 outline，两个都要清） */
 .composer textarea:focus-visible {
   outline: none;
+  box-shadow: none;
 }
 
 .composer textarea::placeholder {
@@ -5722,7 +5732,7 @@ textarea:focus-visible {
   justify-content: flex-end;
   gap: 6px;
   min-height: 24px;
-  padding: 6px 6px 0;
+  padding: 8px 6px 0;
   color: var(--muted);
   font-size: 11px;
   font-weight: 500;
@@ -7773,7 +7783,7 @@ textarea:focus-visible {
     white-space: normal;
   }
   .canvas {
-    padding: 12px 12px 136px;
+    padding: 12px 12px 152px;
   }
 
   .composer {
@@ -10347,6 +10357,9 @@ a.home-key-guide-primary {
    低频参数 → 右侧「更多设置」。只用 token，深色作用域下同样成立。 */
 .composer-toolbar {
   justify-content: space-between;
+  /* 参数行与输入框之间留出呼吸：原来 0 间距，胶囊直接压在输入框边框上 */
+  margin-bottom: 10px;
+  padding: 0 2px;
 }
 
 .composer-params {
@@ -10387,32 +10400,21 @@ a.home-key-guide-primary {
   border-color: var(--border-strong);
 }
 
-/* 焦点环画在胶囊上，内部 select 自身不再画 */
-.param-chip:focus-within {
-  border-color: var(--green);
-  box-shadow: 0 0 0 3px var(--focus-ring);
+/* 胶囊本身就是按钮：焦点环走全局 :focus-visible，鼠标点击后不再常亮绿圈 */
+.param-chip.is-open {
+  border-color: var(--border-strong);
+  background: var(--surface-soft);
 }
 
-.param-chip select {
-  max-width: 160px;
-  height: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  text-overflow: ellipsis;
-  appearance: none;
-  -webkit-appearance: none;
-}
-
-.param-chip select:focus-visible {
-  outline: none;
-}
-
-.param-chip select:disabled {
+.param-chip:disabled {
+  border-color: var(--border);
+  background: var(--overlay-1);
   color: var(--muted-soft);
   cursor: not-allowed;
+}
+
+.param-chip .chip-select-value {
+  max-width: 160px;
 }
 
 .param-chip svg {
@@ -10421,7 +10423,7 @@ a.home-key-guide-primary {
   pointer-events: none;
 }
 
-.param-chip-model select {
+.param-chip-model .chip-select-value {
   max-width: 200px;
 }
 
@@ -10460,6 +10462,519 @@ a.home-key-guide-primary {
 
 .param-chip-icon.is-active svg {
   color: var(--green);
+}
+
+/* ── 自绘下拉 ChipSelect（src/shared/ChipSelect.tsx）──
+   替代原生 select 的系统列表：浮层 portal 到 body，所以只能吃 :root 的浅色 token。 */
+.chip-select-trigger {
+  font-family: inherit;
+  line-height: 1;
+  text-align: left;
+}
+
+.chip-select-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-select-value.is-placeholder {
+  color: var(--muted);
+}
+
+.chip-select-caret {
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.chip-select-trigger.is-open .chip-select-caret {
+  transform: rotate(180deg);
+}
+
+.chip-select-leading {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  color: var(--muted);
+}
+
+.aspect-glyph {
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+}
+
+.aspect-glyph > span {
+  display: block;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+}
+
+/* 表单字段形态（侧栏里的配方选择） */
+.chip-select-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-input);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+
+.chip-select-field .chip-select-value {
+  flex: 1;
+}
+
+.chip-select-field .chip-select-caret {
+  color: var(--muted);
+}
+
+.chip-select-field:hover:not(:disabled),
+.chip-select-field.is-open {
+  border-color: var(--border-strong);
+}
+
+.chip-select-field:disabled {
+  background: var(--overlay-1);
+  cursor: not-allowed;
+}
+
+.chip-select-field:disabled .chip-select-value {
+  color: var(--muted-soft);
+}
+
+.chip-select-menu {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: min(420px, calc(100vw - 16px));
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-popover);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  scrollbar-width: thin;
+  animation: chip-select-in-down var(--dur-fast) var(--ease);
+}
+
+.chip-select-menu[data-placement="top"] {
+  animation-name: chip-select-in-up;
+}
+
+@keyframes chip-select-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes chip-select-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.chip-select-menu-title {
+  padding: 6px 8px 4px;
+  color: var(--muted-soft);
+  font-size: 11px;
+}
+
+.chip-select-option {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 8px;
+  border-radius: var(--r-thumb);
+  cursor: pointer;
+  user-select: none;
+}
+
+.chip-select-option.is-active {
+  background: var(--overlay-1);
+}
+
+.chip-select-option[aria-selected="true"] .chip-select-option-label {
+  font-weight: 500;
+}
+
+.chip-select-option[aria-disabled="true"] {
+  color: var(--muted-soft);
+  cursor: not-allowed;
+}
+
+.chip-select-option-body {
+  display: grid;
+  flex: 1;
+  gap: 1px;
+  min-width: 0;
+}
+
+.chip-select-option-label,
+.chip-select-option-hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-select-option-hint {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.chip-select-option[aria-disabled="true"] .chip-select-option-hint {
+  color: var(--red);
+}
+
+.chip-select-option-meta {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.chip-select-check {
+  display: inline-grid;
+  flex: none;
+  width: 14px;
+  place-items: center;
+  color: var(--green);
+}
+
+.model-stat-meta {
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  background: var(--overlay-1);
+  color: var(--muted);
+}
+
+.model-stat-meta.is-bad {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+/* ── 「更多设置」侧栏（2026-11 重排）：分组卡片 + 分段 / 步进 / 开关 ──
+   全部限定在 .settings-panel 下，连接弹窗里同名的 .settings-section 不受影响。 */
+.settings-panel .settings-group {
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--r-card);
+  background: var(--surface);
+}
+
+.settings-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-group-head h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-group-head small,
+.settings-row-text small,
+.settings-field-label small,
+.switch-row-text small {
+  color: var(--muted-soft);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.settings-field {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-field-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-row-text,
+.switch-row-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.recipe-row .chip-select-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.recipe-row .subtle-button {
+  flex: none;
+  white-space: nowrap;
+}
+
+.recipe-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.recipe-export:hover {
+  color: var(--text);
+}
+
+/* 分段选择 */
+.segmented {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r-input);
+  background: var(--overlay-1);
+}
+
+.segmented-item {
+  height: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--r-thumb);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+
+.segmented-item:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.segmented-item.is-checked {
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.segmented-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* 步进器 */
+.stepper {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 32px;
+  padding: 0 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+}
+
+.stepper:focus-within {
+  border-color: var(--border-strong);
+}
+
+.stepper button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.stepper button:hover:not(:disabled) {
+  background: var(--overlay-1);
+  color: var(--text);
+}
+
+.stepper button:disabled {
+  color: var(--muted-soft);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.settings-panel .stepper input {
+  width: 30px;
+  min-height: 0;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-thumb);
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: center;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.stepper input::-webkit-inner-spin-button,
+.stepper input::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+/* Seed：输入框内嵌「清空 / 随机」 */
+.seed-input {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding-right: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-input);
+  background: var(--surface);
+  transition: border-color var(--dur-fast) var(--ease);
+}
+
+.seed-input:focus-within {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.settings-panel .seed-input input {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+}
+
+.settings-panel .seed-input input:focus-visible {
+  box-shadow: none;
+}
+
+.seed-input-action {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-thumb);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.seed-input-action:hover {
+  background: var(--overlay-1);
+  color: var(--text);
+}
+
+.settings-panel .negative-prompt-input {
+  min-height: 160px;
+  max-height: 420px;
+  border-radius: var(--r-input);
+  background: var(--surface-soft);
+  font-size: 12px;
+  line-height: 1.6;
+  scrollbar-width: thin;
+}
+
+.settings-panel .negative-prompt-input:focus {
+  border-color: var(--green);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+/* 开关行 */
+.settings-panel .switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.settings-panel input.switch {
+  position: relative;
+  flex: none;
+  width: 34px;
+  min-height: 0;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--border-strong);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.settings-panel input.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.settings-panel input.switch:checked {
+  background: var(--green);
+}
+
+.settings-panel input.switch:checked::after {
+  transform: translateX(14px);
 }
 
 /* 顶栏连接状态胶囊：可点击，打开连接弹窗 */

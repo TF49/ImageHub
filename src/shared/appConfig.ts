@@ -459,7 +459,67 @@ export function runtimeModelIds(): Set<string> {
 
 export function runtimeModelDisplayName(model: string): string {
   const norm = model.replace(/^models\//, "").trim().toLowerCase();
-  return runtimeModelConfig.find((m) => m.id.replace(/^models\//, "").trim().toLowerCase() === norm)?.displayName || model;
+  return runtimeModelConfig.find((m) => m.id.replace(/^models\//, "").trim().toLowerCase() === norm)?.displayName || prettifyModelId(model);
+}
+
+// 后台没配展示名的模型（上游 /models 直接返回的）按同一套规则自动生成展示名，
+// 与后台配置的「GPT Image 2」风格保持一致：gpt-image-2.5-flare → GPT Image 2.5 Flare，
+// gpt-image-2-1k → GPT Image 2 · 1K。无法识别的部分只做首字母大写，原始 id 仍在下拉第二行可见。
+const MODEL_NAME_TOKENS: Record<string, string> = {
+  gpt: "GPT",
+  dall: "DALL·E",
+  flux: "FLUX",
+  sd: "SD",
+  sdxl: "SDXL",
+  xl: "XL",
+  hd: "HD",
+  ai: "AI",
+};
+const MODEL_RESOLUTION_TOKEN = /^\d+(\.\d+)?k$/i;
+
+export function prettifyModelId(model: string): string {
+  const raw = model.replace(/^models\//, "").trim();
+  // 带厂商前缀的 id（black-forest-labs/flux-1.1-pro）只取最后一段
+  const id = raw.includes("/") ? raw.slice(raw.lastIndexOf("/") + 1) : raw;
+  if (!id) return model;
+  const tokens = id.split(/[-_\s]+/).filter(Boolean);
+  const words: string[] = [];
+  const suffixes: string[] = [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i];
+    const lower = token.toLowerCase();
+    // dall-e-3 → DALL·E 3：吞掉紧随其后的 "e"
+    if (lower === "dall" && tokens[i + 1]?.toLowerCase() === "e") {
+      words.push("DALL·E");
+      i += 1;
+      continue;
+    }
+    if (MODEL_RESOLUTION_TOKEN.test(token)) {
+      suffixes.push(token.toUpperCase());
+      continue;
+    }
+    // 6 位以上纯数字是日期快照（250828 / 20250415），展示名里省略，原始 id 仍可见
+    if (/^\d{6,}$/.test(token)) continue;
+    // 被连字符拆开的版本号：seedream-4-0 → 4.0
+    if (/^\d$/.test(token) && /^\d$/.test(tokens[i + 1] || "") && words.length > 0) {
+      words.push(`${token}.${tokens[i + 1]}`);
+      i += 1;
+      continue;
+    }
+    if (MODEL_NAME_TOKENS[lower]) {
+      words.push(MODEL_NAME_TOKENS[lower]);
+      continue;
+    }
+    // 纯数字 / 版本号 / 已含大写的 token 原样保留
+    if (/^[\d.]+$/.test(token) || token !== lower) {
+      words.push(token);
+      continue;
+    }
+    words.push(lower.charAt(0).toUpperCase() + lower.slice(1));
+  }
+  const name = words.join(" ");
+  if (!name) return model;
+  return suffixes.length > 0 ? `${name} · ${suffixes.join(" ")}` : name;
 }
 
 export type TokenGuide = {

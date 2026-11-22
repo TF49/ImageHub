@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Copy,
   Database,
+  Dices,
   Download,
   DownloadCloud,
   ExternalLink,
@@ -63,6 +64,8 @@ import {
 } from "react";
 import imageStudioLogo from "./assets/image-studio-logo.svg";
 import { AppNav, type AppNavTarget } from "./shared/AppNav";
+import { AspectGlyph, ChipSelect, type ChipSelectOption } from "./shared/ChipSelect";
+import { NumberStepper, SegmentedControl, SwitchRow } from "./shared/FormControls";
 import { CanvasPage } from "./canvas/CanvasPage";
 import { API_KEY_MIN_LENGTH, COMMON_AGENT_NEGATIVE_PROMPT, INDUSTRY_AGENTS, PROMPT_STARTERS, STYLE_ENHANCEMENT_PRESETS, fetchAppConfig, normalizeApiBaseUrl, runtimeEndpoints, runtimeIndustryAgents, runtimeModelConfig, runtimeModelDisplayName, runtimeModelIds, runtimePromptStarters, runtimeStylePresets, runtimeTokenGuide } from "./shared/appConfig";
 import { RECIPES_LIMIT, RECIPES_STORE, REFERENCE_LIBRARY_LIMIT, REFERENCE_LIBRARY_STORE, STORE_NAME, idbDelete, listRecipes, listReferenceLibrary, openDb, saveRecipe, saveReferenceLibraryItem } from "./shared/db";
@@ -582,6 +585,26 @@ type ModelStat = {
   down: number;
 };
 
+
+// 模型下拉选项：显示名 + 原始 id（显示名不同才显示）+ 近 7 天成功率 / P50 耗时
+function buildModelOptions(models: string[], modelStats: Record<string, ModelStat>): ChipSelectOption<string>[] {
+  return models.map((model) => {
+    const displayName = runtimeModelDisplayName(model);
+    const stat = modelStats[normalizedModelId(model)];
+    const hasStat = Boolean(stat && stat.samples >= 3);
+    return {
+      value: model,
+      label: displayName,
+      textValue: displayName,
+      hint: displayName !== model ? model : undefined,
+      meta: hasStat ? (
+        <span className={`model-stat-meta ${stat.successRate >= 90 ? "is-good" : stat.successRate < 60 ? "is-bad" : ""}`} title={`近 7 天 ${stat.samples} 次：成功率 ${stat.successRate}%，P50 ${formatDuration(stat.p50DurationMs)}`}>
+          {stat.successRate}%
+        </span>
+      ) : undefined,
+    };
+  });
+}
 
 const HISTORY_PAGE_SIZE = 20;
 const SQUARE_PAGE_SIZE = 20;
@@ -7121,25 +7144,17 @@ export default function App() {
             <div className="composer-toolbar">
               <div className="composer-params" role="group" aria-label="生成参数">
                 {selectableImageModels.length > 0 ? (
-                  <label className="param-chip param-chip-model" title={selectedModel ? `生图模型：${selectedModel}` : "选择生图模型"}>
-                    <select
-                      aria-label="生图模型"
-                      value={selectedModel}
-                      onChange={(event) => selectImageModel(event.target.value)}
-                    >
-                      {!selectedModel && <option value="" disabled>选择模型</option>}
-                      {selectableImageModels.map((model) => {
-                        const stat = modelStats[normalizedModelId(model)];
-                        return (
-                          <option key={model} value={model}>
-                            {runtimeModelDisplayName(model)}
-                            {stat && stat.samples >= 3 ? ` · ${stat.successRate}%` : ""}
-                          </option>
-                        );
-                      })}
-                    </select>
-                    <ChevronDown size={12} aria-hidden="true" />
-                  </label>
+                  <ChipSelect
+                    ariaLabel="生图模型"
+                    className="param-chip param-chip-model"
+                    title={selectedModel ? `生图模型：${selectedModel}` : "选择生图模型"}
+                    placeholder="选择模型"
+                    menuTitle="生图模型 · 来自当前 Key 的上游"
+                    menuMinWidth={280}
+                    value={selectedModel}
+                    options={buildModelOptions(selectableImageModels, modelStats)}
+                    onChange={selectImageModel}
+                  />
                 ) : (
                   <button
                     type="button"
@@ -7151,66 +7166,66 @@ export default function App() {
                     {modelState.status === "loading" || isAutoLoadingModels ? "正在验证…" : "连接生图服务"}
                   </button>
                 )}
-                <label className="param-chip" title="张数">
-                  <select
-                    aria-label="张数"
-                    value={params.batchCount}
-                    onChange={(event) => updateParams({ batchCount: Number(event.target.value) })}
-                  >
-                    {Array.from(new Set([...BATCH_COUNT_OPTIONS, params.batchCount]))
-                      .sort((a, b) => a - b)
-                      .map((count) => (
-                        <option key={count} value={count}>{count} 张</option>
-                      ))}
-                  </select>
-                  <ChevronDown size={12} aria-hidden="true" />
-                </label>
-                <label className={`param-chip ${aspectRatioSupported ? "" : "is-error"}`} title={`宽高比：${selectedAspectHint}`}>
-                  <select
-                    aria-label="宽高比"
-                    value={params.aspectRatio}
-                    onChange={(event) => updateParams({ aspectRatio: event.target.value })}
-                  >
-                    {!aspectRatioSupported && <option value={params.aspectRatio} disabled>{params.aspectRatio}（不支持）</option>}
-                    {supportedAspectOptions.map((ratio) => (
-                      <option key={ratio.value} value={ratio.value}>{ratio.value}</option>
-                    ))}
-                  </select>
-                  <ChevronDown size={12} aria-hidden="true" />
-                </label>
-                <label
-                  className="param-chip"
+                <ChipSelect
+                  ariaLabel="张数"
+                  title="每次提交生成的张数"
+                  menuTitle="张数"
+                  menuMinWidth={120}
+                  value={params.batchCount}
+                  options={Array.from(new Set([...BATCH_COUNT_OPTIONS, params.batchCount]))
+                    .sort((a, b) => a - b)
+                    .map((count) => ({ value: count, label: `${count} 张`, textValue: String(count) }))}
+                  onChange={(count) => updateParams({ batchCount: count })}
+                />
+                <ChipSelect
+                  ariaLabel="宽高比"
+                  className={`param-chip ${aspectRatioSupported ? "" : "is-error"}`}
+                  title={`宽高比：${selectedAspectHint}`}
+                  menuTitle="宽高比"
+                  menuMinWidth={240}
+                  value={params.aspectRatio}
+                  options={[
+                    ...(aspectRatioSupported
+                      ? []
+                      : [{ value: params.aspectRatio, label: params.aspectRatio, hint: "当前模型不支持，请换一个", disabled: true, leading: <AspectGlyph ratio={params.aspectRatio} /> }]),
+                    ...supportedAspectOptions.map((ratio) => ({
+                      value: ratio.value as string,
+                      label: ratio.value,
+                      hint: ratio.hint,
+                      leading: <AspectGlyph ratio={ratio.value} />,
+                    })),
+                  ]}
+                  onChange={(ratio) => updateParams({ aspectRatio: ratio })}
+                />
+                <ChipSelect
+                  ariaLabel="分辨率"
                   title={isOfficialGptImageSizeMode ? "该 image-2 模型使用官方固定 1K 尺寸" : `分辨率：${selectedResolutionDefinition.hint}`}
-                >
-                  <select
-                    aria-label="分辨率"
-                    value={selectedResolution}
-                    disabled={isOfficialGptImageSizeMode}
-                    onChange={(event) => updateParams({ resolution: event.target.value as ImageResolution })}
-                  >
-                    {IMAGE_RESOLUTIONS.map((item) => (
-                      <option key={item.value} value={item.value}>{item.value}</option>
-                    ))}
-                  </select>
-                  <ChevronDown size={12} aria-hidden="true" />
-                </label>
+                  menuTitle="分辨率"
+                  menuMinWidth={220}
+                  disabled={isOfficialGptImageSizeMode}
+                  value={selectedResolution}
+                  options={IMAGE_RESOLUTIONS.map((item) => ({ value: item.value, label: item.value, hint: item.hint }))}
+                  onChange={(resolution) => updateParams({ resolution })}
+                />
                 {explicitSizeOptions.length > 0 && (
-                  <label className="param-chip" title={`请求尺寸：${selectedExplicitSizeOption?.label || resolvedRequestSize}`}>
-                    <select
-                      aria-label="尺寸"
-                      value={resolvedRequestSize}
-                      onChange={(event) => {
-                        const option = gptImage2SizeOptionForSize(event.target.value);
-                        if (!option) return;
-                        updateParams({ aspectRatio: option.aspectRatio, resolution: option.resolution, size: option.size });
-                      }}
-                    >
-                      {explicitSizeOptions.map((option) => (
-                        <option key={option.size} value={option.size}>{option.size}</option>
-                      ))}
-                    </select>
-                    <ChevronDown size={12} aria-hidden="true" />
-                  </label>
+                  <ChipSelect
+                    ariaLabel="尺寸"
+                    title={`请求尺寸：${selectedExplicitSizeOption?.label || resolvedRequestSize}`}
+                    menuTitle="输出尺寸"
+                    menuMinWidth={220}
+                    value={resolvedRequestSize}
+                    options={explicitSizeOptions.map((option) => ({
+                      value: option.size,
+                      label: option.size,
+                      hint: option.label,
+                      leading: <AspectGlyph ratio={option.aspectRatio} />,
+                    }))}
+                    onChange={(size) => {
+                      const option = gptImage2SizeOptionForSize(size);
+                      if (!option) return;
+                      updateParams({ aspectRatio: option.aspectRatio, resolution: option.resolution, size: option.size });
+                    }}
+                  />
                 )}
                 <button
                   type="button"
@@ -7943,125 +7958,174 @@ export default function App() {
           </button>
         </div>
 
-        <section className="settings-section recipe-section">
-          <label>
-            <span>配方（本机保存的提示词 + 参数组合）</span>
-            <div className="recipe-row">
-              <select
-                value=""
-                onChange={(event) => {
-                  const recipe = recipes.find((r) => r.id === event.target.value);
-                  if (recipe) applyRecipe(recipe);
-                }}
-              >
-                <option value="">{recipes.length > 0 ? "选择配方应用…" : "还没有配方"}</option>
-                {recipes.map((r) => (
-                  <option key={r.id} value={r.id}>{r.name} · {r.model}</option>
-                ))}
-              </select>
-              <button type="button" className="subtle-button" title="把当前提示词与参数存为配方" onClick={() => void saveCurrentAsRecipe()}>
-                <Save size={14} /> 存
-              </button>
-              {recipes.length > 0 && (
-                <button type="button" className="subtle-button" title="导出全部配方为 JSON" onClick={exportRecipes}>
-                  <DownloadCloud size={14} />
-                </button>
-              )}
-            </div>
-          </label>
+        <section className="settings-section settings-group">
+          <div className="settings-group-head">
+            <h3>配方</h3>
+            <small>{recipes.length > 0 ? `${recipes.length}/${RECIPES_LIMIT} · 本机保存` : "提示词 + 参数组合，本机保存"}</small>
+          </div>
+          <div className="recipe-row">
+            <ChipSelect
+              ariaLabel="应用配方"
+              className="chip-select-field"
+              placeholder={recipes.length > 0 ? "选择配方应用…" : "还没有配方"}
+              disabled={recipes.length === 0}
+              menuTitle="点击即应用到当前提示词与参数"
+              menuMinWidth={260}
+              value=""
+              options={recipes.map((r) => ({ value: r.id, label: r.name, hint: runtimeModelDisplayName(r.model), textValue: r.name }))}
+              onChange={(id) => {
+                const recipe = recipes.find((r) => r.id === id);
+                if (recipe) applyRecipe(recipe);
+              }}
+            />
+            <button type="button" className="subtle-button" title="把当前提示词与参数存为配方" onClick={() => void saveCurrentAsRecipe()}>
+              <Save size={14} /> 存为配方
+            </button>
+          </div>
           {recipes.length > 0 && (
             <details className="recipe-manage">
-              <summary>管理配方（{recipes.length}/{RECIPES_LIMIT}）</summary>
+              <summary>管理配方</summary>
               <div className="recipe-manage-list">
                 {recipes.map((r) => (
                   <div key={r.id} className="recipe-manage-item">
                     <span title={r.prompt}>{r.name}</span>
-                    <button type="button" className="icon-button" title="删除该配方" onClick={() => void deleteRecipeById(r.id)}>
+                    <button type="button" className="icon-button" title="删除该配方" aria-label={`删除配方 ${r.name}`} onClick={() => void deleteRecipeById(r.id)}>
                       <Trash2 size={14} />
                     </button>
                   </div>
                 ))}
               </div>
+              <button type="button" className="recipe-export" onClick={exportRecipes}>
+                <DownloadCloud size={14} /> 导出全部为 JSON
+              </button>
             </details>
           )}
         </section>
 
-        <section className="settings-section compact-grid">
-          <label>
-            <span>质量</span>
-            <select
+        <section className="settings-section settings-group">
+          <div className="settings-group-head">
+            <h3>输出</h3>
+          </div>
+          <div className="settings-field">
+            <span className="settings-field-label">
+              质量
+              {!protocolDefinition.supportsQuality && <small>当前协议不支持</small>}
+            </span>
+            <SegmentedControl
+              ariaLabel="质量"
               value={params.quality}
               disabled={!protocolDefinition.supportsQuality}
-              onChange={(event) => updateParams({ quality: event.target.value })}
-            >
-              <option value="auto">auto</option>
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-            </select>
-          </label>
-          <label>
-            <span>格式</span>
-            <select
+              options={[
+                { value: "auto", label: "自动", title: "auto：由模型决定" },
+                { value: "low", label: "低", title: "low：最快、最省" },
+                { value: "medium", label: "中", title: "medium" },
+                { value: "high", label: "高", title: "high：细节最好、最慢" },
+              ]}
+              onChange={(quality) => updateParams({ quality })}
+            />
+          </div>
+          <div className="settings-field">
+            <span className="settings-field-label">
+              格式
+              {!protocolDefinition.supportsOutputFormat && <small>当前协议不支持</small>}
+            </span>
+            <SegmentedControl
+              ariaLabel="格式"
               value={params.outputFormat}
               disabled={!protocolDefinition.supportsOutputFormat}
-              onChange={(event) => updateParams({ outputFormat: event.target.value as ImageParams["outputFormat"] })}
-            >
-              <option value="png">PNG</option>
-              <option value="jpeg">JPEG</option>
-              <option value="webp">WebP</option>
-            </select>
-          </label>
-          <label title="同时进行的生成请求数，范围 1–6">
-            <span>并发</span>
-            <input
-              type="number"
+              options={[
+                { value: "png", label: "PNG", title: "无损，体积最大" },
+                { value: "jpeg", label: "JPEG", title: "有损，体积小" },
+                { value: "webp", label: "WebP", title: "有损，体积最小" },
+              ]}
+              onChange={(outputFormat) => updateParams({ outputFormat: outputFormat as ImageParams["outputFormat"] })}
+            />
+          </div>
+        </section>
+
+        <section className="settings-section settings-group">
+          <div className="settings-group-head">
+            <h3>生成行为</h3>
+          </div>
+          <div className="settings-row">
+            <span className="settings-row-text">
+              <span>并发</span>
+              <small>同时进行的请求数</small>
+            </span>
+            <NumberStepper
+              ariaLabel="并发"
               min={1}
               max={6}
               value={params.concurrency}
-              onChange={(event) => updateParams({ concurrency: Number(event.target.value) })}
+              onChange={(concurrency) => updateParams({ concurrency })}
             />
-          </label>
-          <label title="生成失败时（5xx / 429 / 网络错误）自动重试的次数。范围 0–5，默认 2。">
-            <span>失败自动重试</span>
-            <input
-              type="number"
+          </div>
+          <div className="settings-row">
+            <span className="settings-row-text">
+              <span>失败自动重试</span>
+              <small>5xx / 429 / 网络错误时</small>
+            </span>
+            <NumberStepper
+              ariaLabel="失败自动重试"
               min={0}
               max={5}
               value={params.retryLimit}
-              onChange={(event) => updateParams({ retryLimit: Number(event.target.value) })}
+              onChange={(retryLimit) => updateParams({ retryLimit })}
             />
-          </label>
-          <label>
-            <span>Seed</span>
-            <input value={params.seed} placeholder="留空则随机" onChange={(event) => updateParams({ seed: event.target.value })} />
-          </label>
+          </div>
+          <div className="settings-field">
+            <span className="settings-field-label">Seed</span>
+            <div className="seed-input">
+              <input
+                value={params.seed}
+                inputMode="numeric"
+                placeholder="留空则每次随机"
+                aria-label="Seed"
+                onChange={(event) => updateParams({ seed: event.target.value })}
+              />
+              {params.seed && (
+                <button type="button" className="seed-input-action" title="清空 Seed" aria-label="清空 Seed" onClick={() => updateParams({ seed: "" })}>
+                  <X size={14} />
+                </button>
+              )}
+              <button
+                type="button"
+                className="seed-input-action"
+                title="随机一个固定 Seed（便于复现）"
+                aria-label="随机 Seed"
+                onClick={() => updateParams({ seed: String(Math.floor(Math.random() * 2147483647)) })}
+              >
+                <Dices size={15} />
+              </button>
+            </div>
+          </div>
         </section>
 
-        <section className="settings-section">
-          <label>
-            <span>负面提示词</span>
-            <textarea
-              value={params.negativePrompt}
-              rows={3}
-              onChange={(event) => updateParams({ negativePrompt: event.target.value })}
-              placeholder="不想出现的内容"
-            />
-          </label>
+        <section className="settings-section settings-group">
+          <div className="settings-group-head">
+            <h3>负面提示词</h3>
+            <small>不想出现的内容</small>
+          </div>
+          <textarea
+            className="negative-prompt-input"
+            aria-label="负面提示词"
+            value={params.negativePrompt}
+            rows={7}
+            onChange={(event) => updateParams({ negativePrompt: event.target.value })}
+            placeholder="例如：文字，水印，模糊"
+          />
         </section>
 
-        <section className="settings-section">
-          <label className="check-row" title="勾选后，推荐到广场的作品不公开提示词，仅展示生成参数">
-            <input
-              type="checkbox"
-              checked={hidePromptOnShare}
-              onChange={(event) => {
-                setHidePromptOnShare(event.target.checked);
-                try { localStorage.setItem("imageStudioHidePromptOnShare", String(event.target.checked)); } catch { /* 忽略 */ }
-              }}
-            />
-            <span>推荐到广场时隐藏提示词</span>
-          </label>
+        <section className="settings-section settings-group">
+          <SwitchRow
+            label="推荐到广场时隐藏提示词"
+            description="开启后作品只公开生成参数"
+            checked={hidePromptOnShare}
+            onChange={(checked) => {
+              setHidePromptOnShare(checked);
+              try { localStorage.setItem("imageStudioHidePromptOnShare", String(checked)); } catch { /* 忽略 */ }
+            }}
+          />
         </section>
       </aside>
 
@@ -9991,25 +10055,17 @@ function HomePage({
               </button>
               {/* 模型选择与工作台参数行同款胶囊；没验证 Key 时没有模型，干脆不显示 */}
               {models.length > 0 && (
-                <label className="param-chip param-chip-model" title={selectedModel ? `生图模型：${selectedModel}` : "选择生图模型"}>
-                  <select
-                    aria-label="生图模型"
-                    value={selectedModel}
-                    onChange={(event) => onSelectModel(event.target.value)}
-                  >
-                    {!selectedModel && <option value="" disabled>选择模型</option>}
-                    {models.map((model) => {
-                      const stat = modelStats[normalizedModelId(model)];
-                      return (
-                        <option key={model} value={model}>
-                          {runtimeModelDisplayName(model)}
-                          {stat && stat.samples >= 3 ? ` · ${stat.successRate}%` : ""}
-                        </option>
-                      );
-                    })}
-                  </select>
-                  <ChevronDown size={12} aria-hidden="true" />
-                </label>
+                <ChipSelect
+                  ariaLabel="生图模型"
+                  className="param-chip param-chip-model"
+                  title={selectedModel ? `生图模型：${selectedModel}` : "选择生图模型"}
+                  placeholder="选择模型"
+                  menuTitle="生图模型 · 来自当前 Key 的上游"
+                  menuMinWidth={280}
+                  value={selectedModel}
+                  options={buildModelOptions(models, modelStats)}
+                  onChange={onSelectModel}
+                />
               )}
             </div>
             <button
