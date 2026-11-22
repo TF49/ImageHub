@@ -6,6 +6,7 @@ import {
   Bot,
   CheckCircle2,
   Clock3,
+  ChevronDown,
   ChevronRight,
   Copy,
   Database,
@@ -16,6 +17,7 @@ import {
   Frame,
   Heart,
   ImagePlus,
+  KeyRound,
   Loader2,
   LogOut,
   Maximize2,
@@ -32,6 +34,7 @@ import {
   Send,
   Settings2,
   ShieldAlert,
+  SlidersHorizontal,
   ShieldCheck,
   Star,
   Square,
@@ -582,6 +585,8 @@ type ModelStat = {
 
 const HISTORY_PAGE_SIZE = 20;
 const SQUARE_PAGE_SIZE = 20;
+// 工具行「张数」下拉的候选值（上限与原数字输入框一致为 20）
+const BATCH_COUNT_OPTIONS = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20];
 const REFERENCE_LIMIT = 6;
 const MAX_REFERENCE_SIZE = 10 * 1024 * 1024;
 const MAX_REFERENCE_REQUEST_BYTES = 512 * 1024;
@@ -2692,8 +2697,10 @@ export default function App() {
     loadBooleanSetting("imageStudioLeftSidebarOpen", window.innerWidth > 780),
   );
   const [isSettingsOpen, setIsSettingsOpen] = useState(() =>
-    loadBooleanSetting("imageStudioSettingsOpen", window.innerWidth > 1180),
+    loadBooleanSetting("imageStudioSettingsOpen", false),
   );
+  // 「连接生图服务」弹窗：协议/地址/Key/模型验证都在这里一次性完成，首次使用自动打开
+  const [isConnectOpen, setIsConnectOpen] = useState(false);
   const [isAutoPromptAnalysisEnabled, setIsAutoPromptAnalysisEnabled] = useState(() =>
     loadBooleanSetting("imageStudioAutoPromptAnalysisEnabled", true),
   );
@@ -2703,7 +2710,6 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(() =>
     localStorage.getItem("imageStudioOnboardingComplete") !== "true",
   );
-  const [onboardingStep, setOnboardingStep] = useState(0);
   const [isAutoLoadingModels, setIsAutoLoadingModels] = useState(false);
   const [showPromptPresets, setShowPromptPresets] = useState(false);
   const [isAgentPanelOpen, setIsAgentPanelOpen] = useState(false);
@@ -2795,7 +2801,6 @@ export default function App() {
     : selectedExplicitSizeOption
       ? selectedExplicitSizeOption.label
     : selectedAspectRatio.hint;
-  const composerConfigSummary = `${params.batchCount}张 · ${params.aspectRatio} · ${selectedResolution}`;
   const composerConfigDetail = `${resolvedRequestSize} · ${params.quality} · ${params.outputFormat.toUpperCase()} · 并发 ${params.concurrency}`;
 
   const selectableImageModels = useMemo(
@@ -3086,11 +3091,17 @@ export default function App() {
 
   useEffect(() => {
     if (activePage !== "studio" || !showOnboarding) return;
-    setIsSettingsOpen(true);
-    if (onboardingStep < 2) {
-      setIsLeftSidebarOpen(false);
-    }
-  }, [activePage, showOnboarding, onboardingStep]);
+    setIsConnectOpen(true);
+  }, [activePage, showOnboarding]);
+
+  useEffect(() => {
+    if (!isConnectOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeConnectDialog();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isConnectOpen, showOnboarding]);
 
   useEffect(() => {
     if (activePage !== "studio" || isAgentHintSeen || isAgentPanelOpen || isComposerCollapsed) {
@@ -4320,9 +4331,6 @@ export default function App() {
           selectedAnalysisModel: nextSelectedAnalysisModel,
         },
       });
-      if (silent && showOnboarding && onboardingStep < 2) {
-        setOnboardingStep(2);
-      }
       return true;
     } catch (error) {
       if (requestId !== modelLoadRequestRef.current) return false;
@@ -6463,10 +6471,6 @@ export default function App() {
     if (window.location.hash !== "#studio") {
       window.history.pushState(null, "", "#studio");
     }
-    if (showOnboarding) {
-      setOnboardingStep(0);
-      setIsSettingsOpen(true);
-    }
   }
 
   // 首页输入框提交：无条件先接住提示词再跳转，未就绪也不丢失用户输入
@@ -6478,6 +6482,13 @@ export default function App() {
     // 连同提示词快照一起记：用户若在 studio 改写了提示词，说明他要自己接管，待办必须作废而不是抢跑
     homeSubmitPendingRef.current = { at: Date.now(), prompt: value };
     enterStudio();
+    // 还没连上：直接把连接弹窗摆到面前（右侧「更多设置」已不含 Key 配置）
+    if (!isModelConnectionVerified) setIsConnectOpen(true);
+  }
+
+  function openConnectionFromCanvas() {
+    enterStudio();
+    setIsConnectOpen(true);
   }
 
   function enterAdmin() {
@@ -6587,7 +6598,12 @@ export default function App() {
   function completeOnboarding() {
     localStorage.setItem("imageStudioOnboardingComplete", "true");
     setShowOnboarding(false);
-    setOnboardingStep(0);
+  }
+
+  // 关闭连接弹窗即视为看过引导（含「稍后再说」）：引导只出现一次，之后由工具栏入口重新打开
+  function closeConnectDialog() {
+    setIsConnectOpen(false);
+    if (showOnboarding) completeOnboarding();
   }
 
   const analysisResult = analysisState.result;
@@ -6710,6 +6726,7 @@ export default function App() {
           modelState={modelState}
           onBackHome={returnHome}
           onEnterStudio={enterStudio}
+          onOpenConnection={openConnectionFromCanvas}
           onEnterSquare={enterSquare}
           runningCount={queueStats.running + queueStats.queued}
           pendingImport={canvasImport}
@@ -6747,26 +6764,7 @@ export default function App() {
         }}
       />
       <aside className={`sidebar ${isLeftSidebarOpen ? "open" : "closed"}`}>
-        <div className="brand">
-          <div className="brand-main">
-            <div className="brand-mark">
-              <img src={imageStudioLogo} alt="" />
-            </div>
-            <div>
-              <strong>Image Studio</strong>
-              <span>本地批量生图</span>
-            </div>
-          </div>
-          <button
-            className="icon-button sidebar-close-button"
-            type="button"
-            title="收起最近记录"
-            onClick={() => setIsLeftSidebarOpen(false)}
-          >
-            <PanelLeftClose size={16} />
-          </button>
-        </div>
-
+        <div className="sidebar-head">
         <button
           className="new-task"
           type="button"
@@ -6783,6 +6781,17 @@ export default function App() {
           <ImagePlus size={17} />
           新任务
         </button>
+          {/* 宽屏由工作台工具栏的切换按钮收起；抽屉形态（窄屏）才需要这里的关闭按钮 */}
+          <button
+            className="icon-button drawer-close"
+            type="button"
+            title="收起最近记录"
+            aria-label="收起最近记录"
+            onClick={() => setIsLeftSidebarOpen(false)}
+          >
+            <PanelLeftClose size={16} />
+          </button>
+        </div>
 
         <div className="history-title">
           <span>最近记录</span>
@@ -6867,14 +6876,19 @@ export default function App() {
               title={isLeftSidebarOpen ? "收起最近记录" : "打开最近记录"}
               onClick={() => setIsLeftSidebarOpen((value) => !value)}
             />
-            <div className={`status-pill ${modelState.status}`}>
-              {modelState.status === "ready" ? <Wifi size={16} /> : <Settings2 size={16} />}
-              <span>{modelState.status === "ready" ? "已连接" : modelState.message}</span>
-            </div>
-          </div>
-          <div className="current-model">
-            <span>{protocolDefinition.shortLabel}</span>
-            <strong>{selectedModel || "未选择"}</strong>
+            <button
+              type="button"
+              className={`status-pill connection-pill ${modelState.status}`}
+              title="连接设置：协议、服务地址、API Key 与可用模型"
+              onClick={() => setIsConnectOpen(true)}
+            >
+              {modelState.status === "ready" ? <Wifi size={16} /> : <KeyRound size={16} />}
+              <span>
+                {modelState.status === "ready"
+                  ? `已连接 · ${protocolDefinition.shortLabel}`
+                  : modelState.message}
+              </span>
+            </button>
           </div>
           <div className="topbar-cluster right">
             {oauthUser && (
@@ -6909,7 +6923,7 @@ export default function App() {
             <SidebarToggleButton
               side="right"
               open={isSettingsOpen}
-              title={isSettingsOpen ? "收起配置" : "打开配置"}
+              title={isSettingsOpen ? "收起更多设置" : "更多设置"}
               onClick={() => setIsSettingsOpen((value) => !value)}
             />
           </div>
@@ -7067,7 +7081,6 @@ export default function App() {
             isAgentPanelOpen ? "has-agent-panel" : "",
             isAgentModeEnabled ? "is-agent-mode" : "",
           ].filter(Boolean).join(" ")}
-          data-onboarding-target="composer"
           onSubmit={(event) => {
             event.preventDefault();
             if (isAgentPanelOpen) return;
@@ -7097,24 +7110,131 @@ export default function App() {
               onToggle={() => setIsAgentModeEnabled((value) => !value)}
             />
           ) : (
-            // 未启用的功能全部收进这一行 chip，点开才展开，避免 composer 常驻五层
+            // 一行承载「高频参数 + Agent 入口」：参数一击可达（设计修订 §六.2），
+            // 低频参数在「更多设置」侧栏，连接配置在「连接」弹窗
             <div className="composer-toolbar">
-              <AgentModeSwitch
-                enabled={false}
-                status={agentModeState.status}
-                onToggle={() => setIsAgentModeEnabled((value) => !value)}
-              />
-              {!isAgentEnabled && !lastAppliedAgent && (
+              <div className="composer-params" role="group" aria-label="生成参数">
+                {selectableImageModels.length > 0 ? (
+                  <label className="param-chip param-chip-model" title={selectedModel ? `生图模型：${selectedModel}` : "选择生图模型"}>
+                    <select
+                      aria-label="生图模型"
+                      value={selectedModel}
+                      onChange={(event) => selectImageModel(event.target.value)}
+                    >
+                      {!selectedModel && <option value="" disabled>选择模型</option>}
+                      {selectableImageModels.map((model) => {
+                        const stat = modelStats[normalizedModelId(model)];
+                        return (
+                          <option key={model} value={model}>
+                            {runtimeModelDisplayName(model)}
+                            {stat && stat.samples >= 3 ? ` · ${stat.successRate}%` : ""}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <ChevronDown size={12} aria-hidden="true" />
+                  </label>
+                ) : (
+                  <button
+                    type="button"
+                    className={`param-chip param-chip-connect ${modelState.status === "error" ? "is-error" : ""}`}
+                    onClick={() => setIsConnectOpen(true)}
+                    title={modelState.message}
+                  >
+                    <KeyRound size={13} aria-hidden="true" />
+                    {modelState.status === "loading" || isAutoLoadingModels ? "正在验证…" : "连接生图服务"}
+                  </button>
+                )}
+                <label className="param-chip" title="张数">
+                  <select
+                    aria-label="张数"
+                    value={params.batchCount}
+                    onChange={(event) => updateParams({ batchCount: Number(event.target.value) })}
+                  >
+                    {Array.from(new Set([...BATCH_COUNT_OPTIONS, params.batchCount]))
+                      .sort((a, b) => a - b)
+                      .map((count) => (
+                        <option key={count} value={count}>{count} 张</option>
+                      ))}
+                  </select>
+                  <ChevronDown size={12} aria-hidden="true" />
+                </label>
+                <label className={`param-chip ${aspectRatioSupported ? "" : "is-error"}`} title={`宽高比：${selectedAspectHint}`}>
+                  <select
+                    aria-label="宽高比"
+                    value={params.aspectRatio}
+                    onChange={(event) => updateParams({ aspectRatio: event.target.value })}
+                  >
+                    {!aspectRatioSupported && <option value={params.aspectRatio} disabled>{params.aspectRatio}（不支持）</option>}
+                    {supportedAspectOptions.map((ratio) => (
+                      <option key={ratio.value} value={ratio.value}>{ratio.value}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={12} aria-hidden="true" />
+                </label>
+                <label
+                  className="param-chip"
+                  title={isOfficialGptImageSizeMode ? "该 image-2 模型使用官方固定 1K 尺寸" : `分辨率：${selectedResolutionDefinition.hint}`}
+                >
+                  <select
+                    aria-label="分辨率"
+                    value={selectedResolution}
+                    disabled={isOfficialGptImageSizeMode}
+                    onChange={(event) => updateParams({ resolution: event.target.value as ImageResolution })}
+                  >
+                    {IMAGE_RESOLUTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>{item.value}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={12} aria-hidden="true" />
+                </label>
+                {explicitSizeOptions.length > 0 && (
+                  <label className="param-chip" title={`请求尺寸：${selectedExplicitSizeOption?.label || resolvedRequestSize}`}>
+                    <select
+                      aria-label="尺寸"
+                      value={resolvedRequestSize}
+                      onChange={(event) => {
+                        const option = gptImage2SizeOptionForSize(event.target.value);
+                        if (!option) return;
+                        updateParams({ aspectRatio: option.aspectRatio, resolution: option.resolution, size: option.size });
+                      }}
+                    >
+                      {explicitSizeOptions.map((option) => (
+                        <option key={option.size} value={option.size}>{option.size}</option>
+                      ))}
+                    </select>
+                    <ChevronDown size={12} aria-hidden="true" />
+                  </label>
+                )}
                 <button
                   type="button"
-                  className="composer-tool-chip"
-                  onClick={() => openAgentPanel()}
-                  title="选择行业工作流，不填也能生成标准图"
+                  className={`param-chip param-chip-icon ${isSettingsOpen ? "is-active" : ""}`}
+                  title={`更多设置：${composerConfigDetail}`}
+                  aria-label="更多设置"
+                  aria-pressed={isSettingsOpen}
+                  onClick={() => setIsSettingsOpen((value) => !value)}
                 >
-                  <WandSparkles size={14} />
-                  行业 Agent
+                  <SlidersHorizontal size={13} />
                 </button>
-              )}
+              </div>
+              <div className="composer-toolbar-end">
+                <AgentModeSwitch
+                  enabled={false}
+                  status={agentModeState.status}
+                  onToggle={() => setIsAgentModeEnabled((value) => !value)}
+                />
+                {!isAgentEnabled && !lastAppliedAgent && (
+                  <button
+                    type="button"
+                    className="composer-tool-chip"
+                    onClick={() => openAgentPanel()}
+                    title="选择行业工作流，不填也能生成标准图"
+                  >
+                    <WandSparkles size={14} />
+                    行业 Agent
+                  </button>
+                )}
+              </div>
             </div>
           )}
           {!isAgentModeEnabled && (isAgentEnabled || lastAppliedAgent) && (
@@ -7683,20 +7803,6 @@ export default function App() {
               aria-label="提示词"
               rows={1}
             />
-            {!isAgentModeEnabled && (
-              <button
-                type="button"
-                className={`composer-config-button ${isSettingsOpen ? "active" : ""}`}
-                title={`打开生成配置：${composerConfigSummary} · ${composerConfigDetail}`}
-                aria-label={`打开生成配置，当前 ${composerConfigSummary}`}
-                onClick={() => setIsSettingsOpen(true)}
-              >
-                <Settings2 size={15} />
-                <span>{params.batchCount}张</span>
-                <span>{params.aspectRatio}</span>
-                <span>{selectedResolution}</span>
-              </button>
-            )}
             <button
               type="button"
               className={`send-button${isSendLaunching ? " is-launching" : ""}`}
@@ -7817,217 +7923,19 @@ export default function App() {
       <aside className={`settings-panel ${isSettingsOpen ? "open" : "closed"}`}>
         <div className="panel-header">
           <div>
-            <strong>配置</strong>
-            <span>API 与生成参数</span>
+            <strong>更多设置</strong>
+            <span>低频参数与偏好</span>
           </div>
           <button
-            className="icon-button"
+            className="icon-button drawer-close"
             type="button"
-            title="收起配置"
-            aria-label="收起配置"
+            title="收起更多设置"
+            aria-label="收起更多设置"
             onClick={() => setIsSettingsOpen(false)}
           >
             <PanelRightClose size={16} />
           </button>
         </div>
-
-        <section className="settings-section" data-onboarding-target="api">
-          <label>
-            <span>生图协议</span>
-            <select
-              value={apiConfig.protocol}
-              onChange={(event) => changeProtocol(event.target.value as ImageProtocol)}
-            >
-              {PROTOCOLS.map((protocol) => (
-                <option key={protocol.value} value={protocol.value}>
-                  {protocol.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="protocol-note">
-            <strong>{protocolDefinition.shortLabel}</strong>
-            <span>{protocolDefinition.description}</span>
-            <small>{formatProtocolCapability(apiConfig.protocol)}</small>
-          </div>
-          <label>
-            <span>API URL</span>
-            <select
-              value={apiConfig.baseUrl}
-              onChange={(event) => setApiConfig((current) => ({ ...current, baseUrl: normalizeApiBaseUrl(event.target.value) }))}
-            >
-              {runtimeEndpoints.map((endpoint) => (
-                <option key={endpoint.value} value={endpoint.value}>
-                  {endpoint.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="endpoint-note">
-            {runtimeEndpoints.find((endpoint) => endpoint.value === apiConfig.baseUrl)?.description || "固定服务地址"}
-          </div>
-          <label>
-            <span>API Key</span>
-            <input
-              value={apiConfig.apiKey}
-              type="password"
-              onChange={(event) => setApiConfig((current) => ({ ...current, apiKey: event.target.value }))}
-              spellCheck={false}
-            />
-          </label>
-          <div className="prompt-group-hint api-key-hint" role="note">
-            <WandSparkles size={14} />
-            <span>
-              推荐使用 <strong>banana Pro 官转</strong> 或 <strong>OpenRouter</strong> 分组。
-            </span>
-          </div>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={apiConfig.rememberKey}
-              onChange={(event) => setApiConfig((current) => ({ ...current, rememberKey: event.target.checked }))}
-            />
-            <span>记住 API Key</span>
-          </label>
-          <label className="check-row" title="勾选后，推荐到广场的作品不公开提示词，仅展示生成参数">
-            <input
-              type="checkbox"
-              checked={hidePromptOnShare}
-              onChange={(event) => {
-                setHidePromptOnShare(event.target.checked);
-                try { localStorage.setItem("imageStudioHidePromptOnShare", String(event.target.checked)); } catch { /* 忽略 */ }
-              }}
-            />
-            <span>推荐到广场时隐藏提示词</span>
-          </label>
-          <div className="api-key-storage-note" role="note">
-            <span>
-              {apiConfig.rememberKey
-                ? "Key 以明文保存在本机浏览器，换人使用请先清除。"
-                : "Key 仅保留在本次会话，关闭浏览器即失效。"}
-            </span>
-            {apiConfig.apiKey ? (
-              <button type="button" className="subtle-button" onClick={clearApiKey}>
-                清除 Key
-              </button>
-            ) : null}
-          </div>
-          <button className="primary-action" type="button" onClick={() => void loadModels()} disabled={modelState.status === "loading"}>
-            {modelState.status === "loading" ? <Loader2 size={17} className="spin" /> : <RefreshCw size={17} />}
-            读取/刷新模型
-          </button>
-          <div className={`status-line ${isAutoLoadingModels ? "loading" : modelState.status}`}>
-            {isAutoLoadingModels ? (
-              <Loader2 size={15} className="spin" />
-            ) : modelState.status === "ready" ? (
-              <CheckCircle2 size={15} />
-            ) : (
-              <AlertCircle size={15} />
-            )}
-            <span>{modelStatusMessage}</span>
-          </div>
-          <label>
-            <span>智能分析 AI</span>
-            <select
-              value={preferredAnalysisModel}
-              disabled={analysisModels.length === 0}
-              onChange={(event) => setSelectedAnalysisModel(event.target.value)}
-            >
-              {analysisModels.length === 0 ? (
-                <option value="">未检测到 GPT 分析模型</option>
-              ) : (
-                analysisModels.map((model) => (
-                  <option key={model} value={model}>
-                    {model}
-                  </option>
-                ))
-              )}
-            </select>
-          </label>
-          <div className={`status-line ${analysisModels.length > 0 ? "ready" : "idle"}`}>
-            {analysisModels.length > 0 ? <ShieldCheck size={15} /> : <AlertCircle size={15} />}
-            <span>
-              {!isAutoPromptAnalysisEnabled
-                ? "已关闭发送前自动优化，点击发送会直接进入生图队列"
-                : analysisModels.length > 0
-                ? `发送前使用 ${preferredAnalysisModel} 做提示词优化、参数推荐和失败预判`
-                : "没有 GPT 文本模型时，会先使用本地规则预检"}
-            </span>
-          </div>
-          <div className="local-save-note">
-            <Database size={15} />
-            <span>生成图片和历史仅保存到当前浏览器本地，服务端只做无状态协议转发。</span>
-          </div>
-        </section>
-
-        <section className="settings-section model-picker" data-onboarding-target="model">
-          <div className="model-picker-head">
-            <span>可用生图模型</span>
-            {selectableImageModels.length > 0 && (
-              <span className="model-picker-count">{selectableImageModels.length}</span>
-            )}
-          </div>
-          <p className="model-picker-note">以当前 API Key 实际拥有的模型为准</p>
-          {/* 模型不多时筛选框只是噪声，超过 6 个才出现 */}
-          {selectableImageModels.length > 6 && (
-            <div className="search-input">
-              <Search size={16} />
-              <input
-                value={modelFilter}
-                placeholder="筛选模型"
-                onChange={(event) => setModelFilter(event.target.value)}
-              />
-            </div>
-          )}
-          <div className="model-list" role="radiogroup" aria-label="可用生图模型">
-            {filteredModels.length === 0 ? (
-              <div className="muted-box">
-                {selectableImageModels.length > 0
-                  ? "无匹配模型"
-                  : apiConfig.apiKey.trim().length < API_KEY_MIN_LENGTH
-                    ? "填写 API Key 后显示可用模型"
-                    : modelState.status === "loading" || isAutoLoadingModels
-                      ? "正在读取这把 Key 的可用模型…"
-                      : modelState.status === "error"
-                        ? modelState.message || "API Key 验证失败"
-                        : isModelConnectionVerified
-                          ? "该 API Key 下没有可用的生图模型"
-                          : "等待 API Key 验证"}
-              </div>
-            ) : (
-              filteredModels.map((model) => {
-                const isSelected = selectedModel === model;
-                const displayName = runtimeModelDisplayName(model);
-                const stat = modelStats[normalizedModelId(model)];
-                const statText = stat && stat.samples >= 3
-                  ? `成功率 ${stat.successRate}% · 约 ${formatCompactDuration(stat.p50DurationMs)}`
-                  : "";
-                const meta = [displayName !== model ? displayName : "", statText].filter(Boolean).join(" · ");
-                const sizeTag = supportsGptImage2ExplicitSizes(model)
-                  ? "2K/4K"
-                  : isGptImage2Model(model) ? "1K" : "";
-                return (
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={isSelected}
-                    key={model}
-                    className={`model-option${isSelected ? " selected" : ""}`}
-                    onClick={() => selectImageModel(model)}
-                    title={model}
-                  >
-                    <span className="model-option-radio" aria-hidden="true" />
-                    <span className="model-option-body">
-                      <span className="model-option-name">{model}</span>
-                      {meta && <small className="model-option-meta">{meta}</small>}
-                    </span>
-                    {sizeTag && <span className="model-option-tag">{sizeTag}</span>}
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </section>
 
         <section className="settings-section recipe-section">
           <label>
@@ -8074,86 +7982,31 @@ export default function App() {
 
         <section className="settings-section compact-grid">
           <label>
-            <span>宽高比</span>
+            <span>质量</span>
             <select
-              value={params.aspectRatio}
-              onChange={(event) => updateParams({ aspectRatio: event.target.value })}
+              value={params.quality}
+              disabled={!protocolDefinition.supportsQuality}
+              onChange={(event) => updateParams({ quality: event.target.value })}
             >
-              {supportedAspectOptions.map((ratio) => (
-                <option
-                  key={ratio.value}
-                  value={ratio.value}
-                >
-                  {ratio.label}
-                </option>
-              ))}
+              <option value="auto">auto</option>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
             </select>
           </label>
-          <div className={`ratio-preview ${aspectRatioSupported ? "" : "unsupported"}`}>
-            <strong>{selectedAspectRatio.value}</strong>
-            <span>{selectedAspectHint}</span>
-            <small>{aspectRatioSupported ? `${selectedResolution} · 请求尺寸 ${resolvedRequestSize}` : "当前协议不支持此比例"}</small>
-          </div>
           <label>
-            <span>分辨率</span>
+            <span>格式</span>
             <select
-              value={selectedResolution}
-              disabled={isOfficialGptImageSizeMode}
-              onChange={(event) => updateParams({ resolution: event.target.value as ImageResolution })}
+              value={params.outputFormat}
+              disabled={!protocolDefinition.supportsOutputFormat}
+              onChange={(event) => updateParams({ outputFormat: event.target.value as ImageParams["outputFormat"] })}
             >
-              {IMAGE_RESOLUTIONS.map((item) => (
-                <option key={item.value} value={item.value} disabled={isOfficialGptImageSizeMode && item.value !== "1K"}>
-                  {item.label}
-                </option>
-              ))}
+              <option value="png">PNG</option>
+              <option value="jpeg">JPEG</option>
+              <option value="webp">WebP</option>
             </select>
           </label>
-          <div className="ratio-preview">
-            <strong>{selectedResolution}</strong>
-            <span>{selectedResolutionDefinition.hint}</span>
-            <small>{isOfficialGptImageSizeMode ? "该 image-2 模型使用官方固定尺寸" : isGemini3ProImageModel(selectedModel) ? "Gemini 3 Pro 会以 imageSize 传递 1K/2K/4K" : supportsGptImage2ExplicitSizes(selectedModel) ? "GPT Image 2 支持显式 2K/4K 尺寸" : "尺寸会随宽高比自动换算"}</small>
-          </div>
-          {explicitSizeOptions.length > 0 && (
-            <>
-              <label>
-                <span>尺寸</span>
-                <select
-                  value={resolvedRequestSize}
-                  onChange={(event) => {
-                    const option = gptImage2SizeOptionForSize(event.target.value);
-                    if (!option) return;
-                    updateParams({
-                      aspectRatio: option.aspectRatio,
-                      resolution: option.resolution,
-                      size: option.size,
-                    });
-                  }}
-                >
-                  {explicitSizeOptions.map((option) => (
-                    <option key={option.size} value={option.size}>
-                      {option.size} · {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="ratio-preview">
-                <strong>{resolvedRequestSize}</strong>
-                <span>{selectedExplicitSizeOption?.label || "GPT Image 2 显式尺寸"}</span>
-                <small>{selectedResolution} · {params.aspectRatio}</small>
-              </div>
-            </>
-          )}
-          <label>
-            <span>张数</span>
-            <input
-              type="number"
-              min={1}
-              max={20}
-              value={params.batchCount}
-              onChange={(event) => updateParams({ batchCount: Number(event.target.value) })}
-            />
-          </label>
-          <label>
+          <label title="同时进行的生成请求数，范围 1–6">
             <span>并发</span>
             <input
               type="number"
@@ -8163,68 +8016,47 @@ export default function App() {
               onChange={(event) => updateParams({ concurrency: Number(event.target.value) })}
             />
           </label>
+          <label title="生成失败时（5xx / 429 / 网络错误）自动重试的次数。范围 0–5，默认 2。">
+            <span>失败自动重试</span>
+            <input
+              type="number"
+              min={0}
+              max={5}
+              value={params.retryLimit}
+              onChange={(event) => updateParams({ retryLimit: Number(event.target.value) })}
+            />
+          </label>
+          <label>
+            <span>Seed</span>
+            <input value={params.seed} placeholder="留空则随机" onChange={(event) => updateParams({ seed: event.target.value })} />
+          </label>
         </section>
 
-        {/* 低频参数按使用频率折叠（设计修订 §六.2）：高频的张数/比例/分辨率保持一击可达 */}
-        <details className="settings-advanced">
-          <summary>
-            <ChevronRight size={14} />
-            高级参数
-            <small>质量 · 格式 · 重试 · Seed · 负面词</small>
-          </summary>
-          <div className="settings-section compact-grid">
-            <label>
-              <span>质量</span>
-              <select
-                value={params.quality}
-                disabled={!protocolDefinition.supportsQuality}
-                onChange={(event) => updateParams({ quality: event.target.value })}
-              >
-                <option value="auto">auto</option>
-                <option value="low">low</option>
-                <option value="medium">medium</option>
-                <option value="high">high</option>
-              </select>
-            </label>
-            <label>
-              <span>格式</span>
-              <select
-                value={params.outputFormat}
-                disabled={!protocolDefinition.supportsOutputFormat}
-                onChange={(event) => updateParams({ outputFormat: event.target.value as ImageParams["outputFormat"] })}
-              >
-                <option value="png">PNG</option>
-                <option value="jpeg">JPEG</option>
-                <option value="webp">WebP</option>
-              </select>
-            </label>
-            <label title="生成失败时（5xx / 429 / 网络错误）自动重试的次数。范围 0–5，默认 2。">
-              <span>失败自动重试</span>
-              <input
-                type="number"
-                min={0}
-                max={5}
-                value={params.retryLimit}
-                onChange={(event) => updateParams({ retryLimit: Number(event.target.value) })}
-              />
-            </label>
-            <label>
-              <span>Seed</span>
-              <input value={params.seed} onChange={(event) => updateParams({ seed: event.target.value })} />
-            </label>
-          </div>
-          <div className="settings-section">
-            <label>
-              <span>负面提示词</span>
-              <textarea
-                value={params.negativePrompt}
-                rows={3}
-                onChange={(event) => updateParams({ negativePrompt: event.target.value })}
-                placeholder="不想出现的内容"
-              />
-            </label>
-          </div>
-        </details>
+        <section className="settings-section">
+          <label>
+            <span>负面提示词</span>
+            <textarea
+              value={params.negativePrompt}
+              rows={3}
+              onChange={(event) => updateParams({ negativePrompt: event.target.value })}
+              placeholder="不想出现的内容"
+            />
+          </label>
+        </section>
+
+        <section className="settings-section">
+          <label className="check-row" title="勾选后，推荐到广场的作品不公开提示词，仅展示生成参数">
+            <input
+              type="checkbox"
+              checked={hidePromptOnShare}
+              onChange={(event) => {
+                setHidePromptOnShare(event.target.checked);
+                try { localStorage.setItem("imageStudioHidePromptOnShare", String(event.target.checked)); } catch { /* 忽略 */ }
+              }}
+            />
+            <span>推荐到广场时隐藏提示词</span>
+          </label>
+        </section>
       </aside>
 
       {isRefLibraryOpen && (
@@ -8269,17 +8101,244 @@ export default function App() {
           onConfirm={() => void confirmBulkDelete()}
         />
       )}
-      {showOnboarding && (
-        <OnboardingGuide
-          step={onboardingStep}
-          canGenerate={canGenerate}
-          modelState={modelState}
-          selectedModel={selectedModel}
-          apiKeyReady={apiConfig.apiKey.trim().length > 0}
-          onStepChange={setOnboardingStep}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          onFinish={completeOnboarding}
-        />
+      {isConnectOpen && (
+        <div className="connect-modal" role="dialog" aria-modal="true" aria-labelledby="connect-title">
+          <button className="connect-backdrop" type="button" aria-label="关闭连接设置" onClick={closeConnectDialog} />
+          <div className="connect-shell">
+            <div className="connect-head">
+              <div>
+                {showOnboarding && <span className="connect-eyebrow">首次使用</span>}
+                <strong id="connect-title">连接生图服务</strong>
+                <span>用你自己的 API Key 生成图片。验证通过后会列出这把 Key 可用的生图模型。</span>
+              </div>
+              <button type="button" className="icon-button" title="关闭" aria-label="关闭" onClick={closeConnectDialog}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <section className="settings-section connect-section">
+              <label>
+                <span>生图协议</span>
+                <select
+                  value={apiConfig.protocol}
+                  onChange={(event) => changeProtocol(event.target.value as ImageProtocol)}
+                >
+                  {PROTOCOLS.map((protocol) => (
+                    <option key={protocol.value} value={protocol.value}>
+                      {protocol.label}
+                    </option>
+                  ))}
+                </select>
+                <small className="connect-field-note">
+                  {protocolDefinition.description} · {formatProtocolCapability(apiConfig.protocol)}
+                </small>
+              </label>
+              <label>
+                <span>服务地址</span>
+                <select
+                  value={apiConfig.baseUrl}
+                  onChange={(event) => setApiConfig((current) => ({ ...current, baseUrl: normalizeApiBaseUrl(event.target.value) }))}
+                >
+                  {runtimeEndpoints.map((endpoint) => (
+                    <option key={endpoint.value} value={endpoint.value}>
+                      {endpoint.label}
+                    </option>
+                  ))}
+                </select>
+                <small className="connect-field-note">
+                  {runtimeEndpoints.find((endpoint) => endpoint.value === apiConfig.baseUrl)?.description || "由管理后台统一配置的服务地址"}
+                </small>
+              </label>
+              <label>
+                <span>API Key</span>
+                <input
+                  value={apiConfig.apiKey}
+                  type="password"
+                  autoFocus={!apiConfig.apiKey}
+                  placeholder="粘贴你的 API Key，填写后自动验证"
+                  onChange={(event) => setApiConfig((current) => ({ ...current, apiKey: event.target.value }))}
+                  spellCheck={false}
+                />
+              </label>
+              {/* Key 获取指引来自后台「Key 获取指引」配置，不再在前端写死渠道名 */}
+              {(runtimeTokenGuide?.tokenUrl || (oauthEnabled && !oauthUser)) && (
+                <div className="connect-token-guide" role="note">
+                  {runtimeTokenGuide?.tokenUrl && (
+                    <span>
+                      还没有 Key？
+                      <a href={runtimeTokenGuide.tokenUrl} target="_blank" rel="noreferrer noopener">
+                        去{runtimeTokenGuide.siteName || "中转站"}获取
+                        <ExternalLink size={12} aria-hidden="true" />
+                      </a>
+                      {runtimeTokenGuide.groupName && <>，分组选择「{runtimeTokenGuide.groupName}」</>}
+                      {runtimeTokenGuide.note && <small>{runtimeTokenGuide.note}</small>}
+                    </span>
+                  )}
+                  {oauthEnabled && !oauthUser && (
+                    <button type="button" className="subtle-button compact" onClick={oauthLogin}>
+                      登录太极 AI 账号，自动获取 Key
+                    </button>
+                  )}
+                </div>
+              )}
+              <div className="connect-key-row">
+                <label className="check-row">
+                  <input
+                    type="checkbox"
+                    checked={apiConfig.rememberKey}
+                    onChange={(event) => setApiConfig((current) => ({ ...current, rememberKey: event.target.checked }))}
+                  />
+                  <span>记住 API Key</span>
+                </label>
+                {apiConfig.apiKey ? (
+                  <button type="button" className="subtle-button compact" onClick={clearApiKey}>
+                    清除 Key
+                  </button>
+                ) : null}
+              </div>
+              <p className="connect-field-note">
+                {apiConfig.rememberKey
+                  ? "Key 以明文保存在本机浏览器，换人使用请先清除。"
+                  : "Key 仅保留在本次会话，关闭浏览器即失效。"}
+              </p>
+              <div className="connect-verify-row">
+                <div className={`status-line ${isAutoLoadingModels ? "loading" : modelState.status}`}>
+                  {isAutoLoadingModels || modelState.status === "loading" ? (
+                    <Loader2 size={15} className="spin" />
+                  ) : modelState.status === "ready" ? (
+                    <CheckCircle2 size={15} />
+                  ) : (
+                    <AlertCircle size={15} />
+                  )}
+                  <span>{modelStatusMessage}</span>
+                </div>
+                <button
+                  className="subtle-button compact"
+                  type="button"
+                  onClick={() => void loadModels()}
+                  disabled={modelState.status === "loading" || apiConfig.apiKey.trim().length < API_KEY_MIN_LENGTH}
+                >
+                  <RefreshCw size={14} className={modelState.status === "loading" ? "spin" : ""} />
+                  {isModelConnectionVerified ? "重新验证" : "验证"}
+                </button>
+              </div>
+            </section>
+
+            <section className="settings-section connect-section model-picker">
+              <div className="model-picker-head">
+                <span>可用生图模型</span>
+                {selectableImageModels.length > 0 && (
+                  <span className="model-picker-count">{selectableImageModels.length}</span>
+                )}
+              </div>
+              <p className="model-picker-note">以当前 API Key 实际拥有的模型为准</p>
+              {/* 模型不多时筛选框只是噪声，超过 6 个才出现 */}
+              {selectableImageModels.length > 6 && (
+                <div className="search-input">
+                  <Search size={16} />
+                  <input
+                    value={modelFilter}
+                    placeholder="筛选模型"
+                    onChange={(event) => setModelFilter(event.target.value)}
+                  />
+                </div>
+              )}
+              <div className="model-list" role="radiogroup" aria-label="可用生图模型">
+                {filteredModels.length === 0 ? (
+                  <div className="muted-box">
+                    {selectableImageModels.length > 0
+                      ? "无匹配模型"
+                      : apiConfig.apiKey.trim().length < API_KEY_MIN_LENGTH
+                        ? "填写 API Key 后显示可用模型"
+                        : modelState.status === "loading" || isAutoLoadingModels
+                          ? "正在读取这把 Key 的可用模型…"
+                          : modelState.status === "error"
+                            ? modelState.message || "API Key 验证失败"
+                            : isModelConnectionVerified
+                              ? "该 API Key 下没有可用的生图模型"
+                              : "等待 API Key 验证"}
+                  </div>
+                ) : (
+                  filteredModels.map((model) => {
+                    const isSelected = selectedModel === model;
+                    const displayName = runtimeModelDisplayName(model);
+                    const stat = modelStats[normalizedModelId(model)];
+                    const statText = stat && stat.samples >= 3
+                      ? `成功率 ${stat.successRate}% · 约 ${formatCompactDuration(stat.p50DurationMs)}`
+                      : "";
+                    const meta = [displayName !== model ? displayName : "", statText].filter(Boolean).join(" · ");
+                    const sizeTag = supportsGptImage2ExplicitSizes(model)
+                      ? "2K/4K"
+                      : isGptImage2Model(model) ? "1K" : "";
+                    return (
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={isSelected}
+                        key={model}
+                        className={`model-option${isSelected ? " selected" : ""}`}
+                        onClick={() => selectImageModel(model)}
+                        title={model}
+                      >
+                        <span className="model-option-radio" aria-hidden="true" />
+                        <span className="model-option-body">
+                          <span className="model-option-name">{model}</span>
+                          {meta && <small className="model-option-meta">{meta}</small>}
+                        </span>
+                        {sizeTag && <span className="model-option-tag">{sizeTag}</span>}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+              <label>
+                <span>智能分析 AI</span>
+                <select
+                  value={preferredAnalysisModel}
+                  disabled={analysisModels.length === 0}
+                  onChange={(event) => setSelectedAnalysisModel(event.target.value)}
+                >
+                  {analysisModels.length === 0 ? (
+                    <option value="">未检测到 GPT 分析模型</option>
+                  ) : (
+                    analysisModels.map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <small className="connect-field-note">
+                  {!isAutoPromptAnalysisEnabled
+                    ? "已关闭发送前自动优化，点击发送会直接进入生图队列"
+                    : analysisModels.length > 0
+                      ? `发送前使用 ${preferredAnalysisModel} 做提示词优化、参数推荐和失败预判`
+                      : "没有 GPT 文本模型时，会先使用本地规则预检"}
+                </small>
+              </label>
+            </section>
+
+            <div className="connect-foot">
+              <span className="connect-privacy">
+                <Database size={14} aria-hidden="true" />
+                图片与历史保存在本机浏览器；服务端会保留一份生成图片用于任务恢复和后台回看，从不记录 API Key。
+              </span>
+              {isModelConnectionVerified && selectedModel ? (
+                <button type="button" className="primary-action compact" onClick={() => {
+                  closeConnectDialog();
+                  window.requestAnimationFrame(() => promptTextareaRef.current?.focus());
+                }}>
+                  开始创作
+                  <ArrowRight size={15} />
+                </button>
+              ) : (
+                <button type="button" className="subtle-button" onClick={closeConnectDialog}>
+                  稍后再说
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
     </>
@@ -11122,167 +11181,6 @@ function ReferenceLibraryModal({
             ))}
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-function OnboardingGuide({
-  step,
-  canGenerate,
-  modelState,
-  selectedModel,
-  apiKeyReady,
-  onStepChange,
-  onOpenSettings,
-  onFinish,
-}: {
-  step: number;
-  canGenerate: boolean;
-  modelState: ModelLoadState;
-  selectedModel: string;
-  apiKeyReady: boolean;
-  onStepChange: (step: number) => void;
-  onOpenSettings: () => void;
-  onFinish: () => void;
-}) {
-  const steps = [
-    {
-      target: "api",
-      title: "连接你的生图服务",
-      body: "先在右侧配置里选择服务地址并填入 API Key。可用地址由管理后台统一配置，避免请求落到未知服务。",
-      status: apiKeyReady ? "API Key 已填写" : "等待填写 API Key",
-    },
-    {
-      target: "model",
-      title: "读取并选择模型",
-      body: "点击读取模型列表，只能从接口返回的模型中选择。模型就绪后，顶部会显示已连接状态。",
-      status: modelState.status === "ready" && selectedModel ? `已选择 ${selectedModel}` : modelState.message,
-    },
-    {
-      target: "composer",
-      title: "输入提示词并生成",
-    body: "回到底部输入框描述画面，选择宽高比、分辨率、张数和并发。提交后提示词会在发送动画完成后自动清空。",
-      status: canGenerate ? "现在可以提交生成" : "等待提示词、模型和比例就绪",
-    },
-  ];
-  const current = steps[step] || steps[0];
-  const last = step >= steps.length - 1;
-  const [spotlightStyle, setSpotlightStyle] = useState<CSSProperties>({});
-  const [panelStyle, setPanelStyle] = useState<CSSProperties>({});
-
-  useLayoutEffect(() => {
-    let raf = 0;
-    let scrollTimer = 0;
-    const targetSelector = `[data-onboarding-target="${current.target}"]`;
-
-    if (current.target !== "composer") {
-      onOpenSettings();
-    }
-
-    const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-    const measure = () => {
-      const target = document.querySelector<HTMLElement>(targetSelector);
-      if (!target) return;
-      const rect = target.getBoundingClientRect();
-      const padding = 10;
-      const left = clamp(rect.left - padding, 10, window.innerWidth - 40);
-      const top = clamp(rect.top - padding, 10, window.innerHeight - 40);
-      const width = Math.max(44, Math.min(rect.width + padding * 2, window.innerWidth - left - 10));
-      const height = Math.max(44, Math.min(rect.height + padding * 2, window.innerHeight - top - 10));
-      const panelWidth = Math.min(420, window.innerWidth - 28);
-      const panelHeightEstimate = 250;
-      const gap = 18;
-      let panelLeft = 14;
-      let panelTop = 14;
-
-      if (left > panelWidth + gap + 14) {
-        panelLeft = left - panelWidth - gap;
-        panelTop = clamp(top, 14, window.innerHeight - panelHeightEstimate - 14);
-      } else if (left + width + panelWidth + gap < window.innerWidth - 14) {
-        panelLeft = left + width + gap;
-        panelTop = clamp(top, 14, window.innerHeight - panelHeightEstimate - 14);
-      } else if (top > panelHeightEstimate + gap + 14) {
-        panelLeft = clamp(left, 14, window.innerWidth - panelWidth - 14);
-        panelTop = top - panelHeightEstimate - gap;
-      } else {
-        panelLeft = clamp(left, 14, window.innerWidth - panelWidth - 14);
-        panelTop = clamp(top + height + gap, 14, window.innerHeight - panelHeightEstimate - 14);
-      }
-
-      setSpotlightStyle({
-        left,
-        top,
-        width,
-        height,
-      });
-      setPanelStyle({
-        left: panelLeft,
-        top: panelTop,
-        right: "auto",
-        bottom: "auto",
-      });
-    };
-
-    const scheduleMeasure = () => {
-      window.cancelAnimationFrame(raf);
-      raf = window.requestAnimationFrame(measure);
-    };
-
-    const target = document.querySelector<HTMLElement>(targetSelector);
-    target?.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
-    scheduleMeasure();
-    scrollTimer = window.setTimeout(scheduleMeasure, 260);
-    window.addEventListener("resize", scheduleMeasure);
-    window.addEventListener("scroll", scheduleMeasure, true);
-    return () => {
-      window.cancelAnimationFrame(raf);
-      window.clearTimeout(scrollTimer);
-      window.removeEventListener("resize", scheduleMeasure);
-      window.removeEventListener("scroll", scheduleMeasure, true);
-    };
-  }, [current.target]);
-
-  return (
-    <div className="onboarding-overlay" role="presentation">
-      <div className="onboarding-click-catcher" aria-hidden="true" />
-      <div className="onboarding-spotlight" aria-hidden="true" style={spotlightStyle} />
-      <div className="onboarding-panel" role="dialog" aria-modal="true" aria-label="首次使用引导" style={panelStyle}>
-        <div className="onboarding-progress">
-          {steps.map((item, index) => (
-            <button
-              key={item.title}
-              type="button"
-              className={index === step ? "active" : ""}
-              aria-label={`第 ${index + 1} 步`}
-              onClick={() => onStepChange(index)}
-            />
-          ))}
-        </div>
-        <div className="onboarding-copy">
-          <span>首次使用 · 第 {step + 1} 步 / {steps.length}</span>
-          <strong>{current.title}</strong>
-          <p>{current.body}</p>
-          <small>{current.status}</small>
-        </div>
-        <div className="onboarding-actions">
-          <button type="button" className="subtle-button" onClick={onFinish}>
-            跳过
-          </button>
-          {step === 0 && (
-            <button type="button" className="subtle-button" onClick={onOpenSettings}>
-              打开配置
-            </button>
-          )}
-          <button
-            type="button"
-            className="primary-action"
-            onClick={() => (last ? onFinish() : onStepChange(step + 1))}
-          >
-            {last ? "完成引导" : "下一步"}
-            {!last && <ArrowRight size={16} />}
-          </button>
-        </div>
       </div>
     </div>
   );

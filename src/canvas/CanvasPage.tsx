@@ -131,6 +131,7 @@ export function CanvasPage({
   modelState,
   onBackHome,
   onEnterStudio,
+  onOpenConnection,
   onEnterSquare,
   runningCount,
   pendingImport,
@@ -144,6 +145,7 @@ export function CanvasPage({
   modelState: ModelLoadState;
   onBackHome: () => void;
   onEnterStudio: () => void;
+  onOpenConnection: () => void;
   onEnterSquare: () => void;
   runningCount: number;
   pendingImport: CanvasImportPayload | null;
@@ -3272,7 +3274,7 @@ export function CanvasPage({
             {!isApiReady && (
               <div className="canvas-api-hint">
                 请先在工作台配置 API Key 并验证连接
-                <button type="button" className="link-button" onClick={onEnterStudio}>前往配置</button>
+                <button type="button" className="link-button" onClick={onOpenConnection}>前往配置</button>
               </div>
             )}
 

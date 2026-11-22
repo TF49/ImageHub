@@ -2620,30 +2620,6 @@ textarea:focus-visible {
   background: var(--red-soft);
   color: var(--red);
 }
-
-.current-model {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  align-items: baseline;
-  justify-content: center;
-  gap: 7px;
-}
-
-.current-model span {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.current-model strong {
-  overflow: hidden;
-  max-width: min(520px, 70%);
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .topbar-toggle {
   display: inline-flex;
   width: 34px;
@@ -5397,54 +5373,6 @@ textarea:focus-visible {
   margin: 0;
   justify-content: flex-start;
 }
-
-.composer-config-button {
-  display: inline-flex;
-  align-items: center;
-  align-self: end;
-  gap: 5px;
-  min-width: 0;
-  min-height: 36px;
-  max-width: 210px;
-  padding: 0 7px;
-  border: 1px solid rgba(220, 220, 216, 0.92);
-  border-radius: 12px;
-  background: rgba(251, 251, 250, 0.92);
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1;
-  white-space: nowrap;
-  box-shadow: none;
-  transition:
-    border-color 150ms ease,
-    background 150ms ease,
-    color 150ms ease,
-    transform 150ms ease;
-}
-
-.composer-config-button:hover,
-.composer-config-button.active {
-  border-color: #9fd9ca;
-  background: #f2fffb;
-  color: var(--green);
-}
-
-.composer-config-button:active {
-  transform: scale(0.98);
-}
-
-.composer-config-button svg {
-  flex: 0 0 auto;
-}
-
-.composer-config-button span {
-  flex: 0 1 auto;
-  overflow: hidden;
-  max-width: 58px;
-  text-overflow: ellipsis;
-}
-
 .send-button {
   position: relative;
   overflow: visible;
@@ -6310,109 +6238,6 @@ textarea:focus-visible {
   color: var(--muted);
   font-size: 11px;
 }
-
-.onboarding-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 55;
-  pointer-events: none;
-}
-
-.onboarding-click-catcher {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.onboarding-spotlight {
-  position: absolute;
-  z-index: 1;
-  border: 2px solid rgba(255, 255, 255, 0.94);
-  border-radius: 12px;
-  box-shadow:
-    0 0 0 9999px rgba(10, 11, 12, 0.62),
-    0 0 0 7px rgba(16, 163, 127, 0.2),
-    0 22px 80px rgba(0, 0, 0, 0.24);
-  pointer-events: none;
-  transition:
-    top 220ms ease,
-    right 220ms ease,
-    bottom 220ms ease,
-    left 220ms ease,
-    width 220ms ease,
-    height 220ms ease;
-}
-
-.onboarding-panel {
-  position: absolute;
-  right: 22px;
-  bottom: 22px;
-  z-index: 2;
-  display: grid;
-  width: min(420px, calc(100vw - 28px));
-  gap: 14px;
-  padding: 16px;
-  border: 1px solid rgba(17, 17, 17, 0.12);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.25);
-  backdrop-filter: blur(22px);
-  pointer-events: auto;
-}
-
-.onboarding-progress {
-  display: flex;
-  gap: 7px;
-}
-
-.onboarding-progress button {
-  width: 100%;
-  height: 5px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: #d7d8d2;
-}
-
-.onboarding-progress button.active {
-  background: var(--green);
-}
-
-.onboarding-copy {
-  display: grid;
-  gap: 8px;
-}
-
-.onboarding-copy span {
-  color: var(--green);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.onboarding-copy strong {
-  color: var(--text);
-  font-size: 18px;
-}
-
-.onboarding-copy p,
-.onboarding-copy small {
-  margin: 0;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.onboarding-copy small {
-  font-weight: 500;
-}
-
-.onboarding-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
 .preview-modal {
   position: fixed;
   inset: 0;
@@ -7906,12 +7731,6 @@ textarea:focus-visible {
     grid-column: 2;
     text-align: left;
   }
-
-  .onboarding-panel {
-    right: 14px;
-    bottom: 14px;
-  }
-
   .app-shell {
     grid-template-columns: 1fr;
   }
@@ -7960,11 +7779,6 @@ textarea:focus-visible {
   .version-update-notice span {
     white-space: normal;
   }
-
-  .current-model {
-    justify-content: flex-start;
-  }
-
   .canvas {
     padding: 12px 12px 136px;
   }
@@ -8065,18 +7879,6 @@ textarea:focus-visible {
   .analysis-countdown {
     grid-template-columns: 1fr;
   }
-
-  .composer-config-button {
-    width: 36px;
-    max-width: 36px;
-    justify-content: center;
-    padding: 0;
-  }
-
-  .composer-config-button span {
-    display: none;
-  }
-
   .analysis-panel-head {
     grid-template-columns: 32px minmax(0, 1fr) 32px;
   }
@@ -10545,4 +10347,314 @@ a.home-key-guide-primary {
 /* 反馈弹窗外壳与其他弹窗统一 16px 内边距 */
 .feedback-shell {
   padding: 16px;
+}
+
+/* ── 工作台设置拆分（2026-11）─────────────────────────────
+   连接配置（一次性）→ .connect-modal；高频参数 → 输入框上方 .composer-params；
+   低频参数 → 右侧「更多设置」。只用 token，深色作用域下同样成立。 */
+.composer-toolbar {
+  justify-content: space-between;
+}
+
+.composer-params {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.composer-toolbar-end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.param-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+
+.param-chip:hover {
+  border-color: var(--border-strong);
+}
+
+/* 焦点环画在胶囊上，内部 select 自身不再画 */
+.param-chip:focus-within {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.param-chip select {
+  max-width: 160px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-overflow: ellipsis;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.param-chip select:focus-visible {
+  outline: none;
+}
+
+.param-chip select:disabled {
+  color: var(--muted-soft);
+  cursor: not-allowed;
+}
+
+.param-chip svg {
+  flex: none;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.param-chip-model select {
+  max-width: 200px;
+}
+
+.param-chip.is-error {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+/* 未连接时模型位置变成「连接生图服务」：用琥珀色提示待办，而不是禁用灰 */
+.param-chip-connect {
+  border-color: var(--amber);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.param-chip-connect svg {
+  color: currentColor;
+}
+
+.param-chip-connect.is-error {
+  border-color: var(--red);
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.param-chip-icon {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+
+.param-chip-icon.is-active {
+  border-color: var(--green);
+  background: var(--green-soft);
+}
+
+.param-chip-icon.is-active svg {
+  color: var(--green);
+}
+
+/* 顶栏连接状态胶囊：可点击，打开连接弹窗 */
+.connection-pill {
+  gap: 6px;
+  max-width: min(360px, 52vw);
+  cursor: pointer;
+}
+
+.connection-pill span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-pill:hover {
+  border-color: var(--border-strong);
+}
+
+/* 左侧栏头部：新任务 + 抽屉关闭 */
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebar-head .new-task {
+  flex: 1;
+}
+
+/* 抽屉关闭按钮只在抽屉形态出现：宽屏由工作台工具栏的切换按钮负责 */
+.drawer-close {
+  display: none;
+}
+
+@media (max-width: 780px) {
+  .sidebar .drawer-close {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 1180px) {
+  .settings-panel .drawer-close {
+    display: inline-flex;
+  }
+}
+
+.connect-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.connect-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(22, 21, 15, 0.42);
+  cursor: default;
+}
+
+.connect-shell {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  width: min(520px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow-popover);
+}
+
+.connect-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.connect-head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.connect-eyebrow {
+  color: var(--green);
+  font-size: 12px;
+}
+
+.connect-head strong {
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.connect-head > div > span:not(.connect-eyebrow) {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.connect-section {
+  border-radius: var(--r-card);
+  background: var(--surface);
+}
+
+.connect-section input,
+.connect-section select {
+  border-radius: var(--r-input);
+  background: var(--surface);
+}
+
+.connect-field-note {
+  margin: 0;
+  color: var(--muted-soft);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.connect-token-guide {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-input);
+  background: var(--green-soft);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.connect-token-guide a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--green);
+  font-weight: 500;
+}
+
+.connect-token-guide small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.connect-key-row,
+.connect-verify-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.connect-verify-row .status-line {
+  flex: 1;
+  min-width: 0;
+}
+
+.connect-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.connect-privacy {
+  display: flex;
+  flex: 1;
+  min-width: 220px;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.connect-privacy svg {
+  flex: none;
+  margin-top: 2px;
 }
