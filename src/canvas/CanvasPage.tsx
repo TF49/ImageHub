@@ -3038,18 +3038,19 @@ export function CanvasPage({
           {selectedIds.size > 1 && <span className="canvas-selection-count">已选 {selectedIds.size}</span>}
         </div>
         <div className="canvas-zoom-bar">
-          <button type="button" onClick={() => { const nz = clampZoomVal(viewport.zoom / 1.2); zoomAtCenter(nz); }}>-</button>
+          <button type="button" title="缩小" aria-label="缩小" onClick={() => { const nz = clampZoomVal(viewport.zoom / 1.2); zoomAtCenter(nz); }}>−</button>
           <input
             type="range"
             min={10}
             max={300}
             step={5}
+            aria-label="缩放比例"
             value={Math.round(viewport.zoom * 100)}
             onChange={(e) => zoomAtCenter(Number(e.target.value) / 100)}
           />
           <span className="canvas-zoom-label">{Math.round(viewport.zoom * 100)}%</span>
-          <button type="button" onClick={() => { const nz = clampZoomVal(viewport.zoom * 1.2); zoomAtCenter(nz); }}>+</button>
-          <button type="button" onClick={fitAllNodes} title="适应全部节点">
+          <button type="button" title="放大" aria-label="放大" onClick={() => { const nz = clampZoomVal(viewport.zoom * 1.2); zoomAtCenter(nz); }}>+</button>
+          <button type="button" onClick={fitAllNodes} title="适应全部节点" aria-label="适应全部节点">
             <Maximize2 size={15} />
           </button>
         </div>
@@ -3471,7 +3472,7 @@ export function CanvasPage({
 
       {/* Panel expand button when collapsed */}
       {!isPanelOpen && (
-        <button type="button" className="canvas-panel-expand" onClick={() => setIsPanelOpen(true)}>
+        <button type="button" className="canvas-panel-expand" title="展开面板" aria-label="展开面板" onClick={() => setIsPanelOpen(true)}>
           <PanelRightOpen size={18} />
         </button>
       )}

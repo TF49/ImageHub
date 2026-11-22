@@ -860,13 +860,6 @@ textarea:focus-visible {
   font-size: 12px;
 }
 
-.home-chip-divider {
-  flex: 0 0 auto;
-  width: 1px;
-  height: 18px;
-  background: var(--border);
-}
-
 /* Square/Canvas 顶部小标签仍在复用这个类，首页改版后它不再出现在首页，但不能删 */
 .home-kicker {
   display: inline-flex;
@@ -10657,4 +10650,82 @@ a.home-key-guide-primary {
 .connect-privacy svg {
   flex: none;
   margin-top: 2px;
+}
+
+/* ── 打磨（2026-11）──────────────────────────────────────── */
+
+/* 页面标题统一到首页的字号档（PRD 最大 39px），不再出现 112px 的广场标题把作品挤出首屏 */
+.square-hero {
+  padding: clamp(28px, 5vh, 56px) 0 24px;
+}
+
+.square-hero h1 {
+  color: var(--text);
+  font-size: clamp(28px, 3.6vw, 39px);
+  line-height: 1.15;
+}
+
+.square-hero p {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.admin-auth-hero h1,
+.admin-reset-panel h1 {
+  font-size: clamp(30px, 4vw, 44px);
+  line-height: 1.15;
+}
+
+.admin-topbar h1 {
+  font-size: clamp(22px, 2.6vw, 30px);
+  line-height: 1.2;
+}
+
+/* 禁用态必须一眼可辨：原先半透明品牌绿仍像一颗可点的主按钮 */
+.canvas-generate-btn:disabled {
+  background: var(--surface-soft);
+  color: var(--muted-soft);
+  opacity: 1;
+}
+
+/* 广场加载失败条：文字撑开、重试按钮靠右 */
+.square-alert {
+  align-items: center;
+  border-color: var(--red);
+}
+
+.square-alert > span {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 后台提示条的失败态，与成功态区分 */
+.admin-security-notice.is-error {
+  border-color: var(--red);
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.admin-inline-notice {
+  color: var(--green);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.admin-inline-notice.is-error {
+  color: var(--red);
+}
+
+/* 首页输入框底栏：附件按钮 + 模型胶囊 */
+.home-composer-tools {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 空状态标题是页面内的二级标题，不能比页面标题「广场」还大 */
+.square-onboarding-header h2 {
+  font-size: clamp(20px, 2.2vw, 24px);
 }

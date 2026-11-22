@@ -6191,7 +6191,11 @@ export default function App() {
   }
 
   function copyPrompt(text: string) {
-    void navigator.clipboard.writeText(text);
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(
+      () => showAppNotice("已复制提示词"),
+      () => showAppNotice("复制失败，请手动选中文本复制"),
+    );
   }
 
   async function imageSourceToDataUrl(item: Job | PreviewItem) {
@@ -6708,6 +6712,8 @@ export default function App() {
           onCanvas={enterCanvas}
           runningCount={queueStats.running + queueStats.queued}
           onReproduce={applySquareItemToStudio}
+          onCopyText={copyPrompt}
+          onNotice={showAppNotice}
         />
       </>
     );
@@ -8366,6 +8372,20 @@ type AdminConfigData = {
 
 type ConfigSection = "sites" | "presets" | "system";
 
+// 数字输入框允许暂时为空：Number("") === 0，而 0 在配额里表示「不限」，
+// 清空后直接保存会把限额悄悄变成不限。空值保留为 ""，保存时拦截。
+type NumberDraft = number | "";
+function numberDraft(raw: string): NumberDraft {
+  return raw === "" ? "" : Number(raw);
+}
+function invalidNumberField(fields: Array<[label: string, value: NumberDraft, min: number]>): string {
+  for (const [label, value, min] of fields) {
+    if (value === "" || !Number.isFinite(value)) return `「${label}」不能为空`;
+    if (value < min) return `「${label}」不能小于 ${min}`;
+  }
+  return "";
+}
+
 function AdminConfigCenter() {
   const [config, setConfig] = useState<AdminConfigData | null>(null);
   const [section, setSection] = useState<ConfigSection>("sites");
@@ -8382,10 +8402,10 @@ function AdminConfigCenter() {
   const [openAgentId, setOpenAgentId] = useState("");
   const [agentAnalyze, setAgentAnalyze] = useState("");
   const [promptAnalyze, setPromptAnalyze] = useState("");
-  const [quotas, setQuotas] = useState({ squareShelfLimit: 4, squareDailyRecommend: 10, squareDailyLike: 10, squareMaxFeed: 20, generationDailyLimit: 0, userDiskLimitMB: 0 });
+  const [quotas, setQuotas] = useState<Record<"squareShelfLimit" | "squareDailyRecommend" | "squareDailyLike" | "squareMaxFeed" | "generationDailyLimit" | "userDiskLimitMB", NumberDraft>>({ squareShelfLimit: 4, squareDailyRecommend: 10, squareDailyLike: 10, squareMaxFeed: 20, generationDailyLimit: 0, userDiskLimitMB: 0 });
   const [tokenGuide, setTokenGuide] = useState({ enabled: true, siteName: "", tokenUrl: "", groupName: "", note: "" });
   // 表单里用「秒」，存下去换成毫秒：管理员填 1200 比填 1200000 不容易错一个零
-  const [timeoutSec, setTimeoutSec] = useState({ api: 300, generation: 1200 });
+  const [timeoutSec, setTimeoutSec] = useState<{ api: NumberDraft; generation: NumberDraft }>({ api: 300, generation: 1200 });
 
   function hydrate(data: AdminConfigData) {
     setConfig(data);
@@ -8668,7 +8688,7 @@ function AdminConfigCenter() {
                   min={30}
                   max={3600}
                   value={timeoutSec.generation}
-                  onChange={(e) => setTimeoutSec((t) => ({ ...t, generation: Number(e.target.value) }))}
+                  onChange={(e) => setTimeoutSec((t) => ({ ...t, generation: numberDraft(e.target.value) }))}
                 />
               </label>
               <label>常规接口超时（秒，10–600）
@@ -8677,7 +8697,7 @@ function AdminConfigCenter() {
                   min={10}
                   max={600}
                   value={timeoutSec.api}
-                  onChange={(e) => setTimeoutSec((t) => ({ ...t, api: Number(e.target.value) }))}
+                  onChange={(e) => setTimeoutSec((t) => ({ ...t, api: numberDraft(e.target.value) }))}
                 />
               </label>
             </div>
@@ -8693,12 +8713,19 @@ function AdminConfigCenter() {
                 type="button"
                 className="primary-button admin-config-save"
                 disabled={saving === "请求超时"}
-                onClick={() => void saveSection("timeouts", {
-                  timeouts: {
-                    apiTimeoutMs: Math.round(timeoutSec.api * 1000),
-                    generationTimeoutMs: Math.round(timeoutSec.generation * 1000),
-                  },
-                }, "请求超时")}
+                onClick={() => {
+                  const invalid = invalidNumberField([
+                    ["生成超时", timeoutSec.generation, 1],
+                    ["常规接口超时", timeoutSec.api, 1],
+                  ]);
+                  if (invalid) { setNotice(""); setError(invalid); return; }
+                  void saveSection("timeouts", {
+                    timeouts: {
+                      apiTimeoutMs: Math.round(Number(timeoutSec.api) * 1000),
+                      generationTimeoutMs: Math.round(Number(timeoutSec.generation) * 1000),
+                    },
+                  }, "请求超时");
+                }}
               >
                 {saving === "请求超时" ? <Loader2 size={15} className="spin" /> : <Save size={15} />} 保存超时
               </button>
@@ -8710,16 +8737,27 @@ function AdminConfigCenter() {
               <span className="admin-muted">生成类配额填 0 表示不限制</span>
             </div>
             <div className="admin-config-grid2">
-              <label>每用户每日生成上限（次，0 不限）<input type="number" min={0} value={quotas.generationDailyLimit} onChange={(e) => setQuotas((q) => ({ ...q, generationDailyLimit: Number(e.target.value) }))} /></label>
-              <label>每用户图片磁盘上限（MB，0 不限）<input type="number" min={0} value={quotas.userDiskLimitMB} onChange={(e) => setQuotas((q) => ({ ...q, userDiskLimitMB: Number(e.target.value) }))} /></label>
-              <label>广场货架上限（每人展示）<input type="number" min={1} value={quotas.squareShelfLimit} onChange={(e) => setQuotas((q) => ({ ...q, squareShelfLimit: Number(e.target.value) }))} /></label>
-              <label>广场每日推荐上限<input type="number" min={0} value={quotas.squareDailyRecommend} onChange={(e) => setQuotas((q) => ({ ...q, squareDailyRecommend: Number(e.target.value) }))} /></label>
-              <label>广场每日点赞上限<input type="number" min={0} value={quotas.squareDailyLike} onChange={(e) => setQuotas((q) => ({ ...q, squareDailyLike: Number(e.target.value) }))} /></label>
-              <label>广场信息流单页上限<input type="number" min={1} value={quotas.squareMaxFeed} onChange={(e) => setQuotas((q) => ({ ...q, squareMaxFeed: Number(e.target.value) }))} /></label>
+              <label>每用户每日生成上限（次，0 不限）<input type="number" min={0} value={quotas.generationDailyLimit} onChange={(e) => setQuotas((q) => ({ ...q, generationDailyLimit: numberDraft(e.target.value) }))} /></label>
+              <label>每用户图片磁盘上限（MB，0 不限）<input type="number" min={0} value={quotas.userDiskLimitMB} onChange={(e) => setQuotas((q) => ({ ...q, userDiskLimitMB: numberDraft(e.target.value) }))} /></label>
+              <label>广场货架上限（每人展示）<input type="number" min={1} value={quotas.squareShelfLimit} onChange={(e) => setQuotas((q) => ({ ...q, squareShelfLimit: numberDraft(e.target.value) }))} /></label>
+              <label>广场每日推荐上限<input type="number" min={0} value={quotas.squareDailyRecommend} onChange={(e) => setQuotas((q) => ({ ...q, squareDailyRecommend: numberDraft(e.target.value) }))} /></label>
+              <label>广场每日点赞上限<input type="number" min={0} value={quotas.squareDailyLike} onChange={(e) => setQuotas((q) => ({ ...q, squareDailyLike: numberDraft(e.target.value) }))} /></label>
+              <label>广场信息流单页上限<input type="number" min={1} value={quotas.squareMaxFeed} onChange={(e) => setQuotas((q) => ({ ...q, squareMaxFeed: numberDraft(e.target.value) }))} /></label>
             </div>
             <div className="admin-config-actions">
               <button type="button" className="subtle-button" onClick={() => void resetSection("quotas", "配额")}><RefreshCw size={14} /> 恢复默认</button>
-              <button type="button" className="primary-button admin-config-save" disabled={saving === "配额"} onClick={() => void saveSection("quotas", { quotas }, "配额")}>
+              <button type="button" className="primary-button admin-config-save" disabled={saving === "配额"} onClick={() => {
+                const invalid = invalidNumberField([
+                  ["每用户每日生成上限", quotas.generationDailyLimit, 0],
+                  ["每用户图片磁盘上限", quotas.userDiskLimitMB, 0],
+                  ["广场货架上限", quotas.squareShelfLimit, 1],
+                  ["广场每日推荐上限", quotas.squareDailyRecommend, 0],
+                  ["广场每日点赞上限", quotas.squareDailyLike, 0],
+                  ["广场信息流单页上限", quotas.squareMaxFeed, 1],
+                ]);
+                if (invalid) { setNotice(""); setError(invalid); return; }
+                void saveSection("quotas", { quotas }, "配额");
+              }}>
                 {saving === "配额" ? <Loader2 size={15} className="spin" /> : <Save size={15} />} 保存配额
               </button>
             </div>
@@ -9190,7 +9228,7 @@ function AdminApp({
           <div className="admin-auth-hero">
             <span className="admin-badge"><ShieldCheck size={16} /> Admin Console</span>
             <h1>请求日志与服务健康后台</h1>
-            <p>查看所有用户的生成请求、成功率、耗时和失败原因。后台不会记录 API Key，也不会保存生成图片。</p>
+            <p>查看所有用户的生成请求、成功率、耗时和失败原因，以及服务端保存的生成图片。后台从不记录 API Key。</p>
             <div className="admin-auth-actions">
               <button type="button" className="subtle-button" onClick={onBackHome}>返回首页</button>
               <button type="button" className="subtle-button" onClick={onEnterStudio}>打开工作台</button>
@@ -9306,7 +9344,7 @@ function AdminApp({
       <header className="admin-topbar">
         <div>
           <span className="admin-badge"><img src={imageStudioLogo} alt="" /> Image Studio Admin</span>
-          <h1>请求日志后台</h1>
+          <h1>管理后台</h1>
         </div>
         <div className="admin-topbar-actions">
           <button type="button" className="subtle-button" onClick={onEnterStudio}>工作台</button>
@@ -9325,15 +9363,18 @@ function AdminApp({
         </div>
       </header>
 
-      <nav className="admin-tabs">
-        <button type="button" className={adminTab === "overview" ? "active" : ""} onClick={() => selectAdminTab("overview")}>概览</button>
-        <button type="button" className={adminTab === "logs" ? "active" : ""} onClick={() => selectAdminTab("logs")}>请求日志</button>
-        <button type="button" className={adminTab === "feedback" ? "active" : ""} onClick={() => selectAdminTab("feedback")}>用户反馈</button>
-        <button type="button" className={adminTab === "config" ? "active" : ""} onClick={() => selectAdminTab("config")}>接口配置</button>
-        <button type="button" className={adminTab === "security" ? "active" : ""} onClick={() => selectAdminTab("security")}>安全加固</button>
+      <nav className="admin-tabs" role="tablist" aria-label="后台分区">
+        <button type="button" role="tab" aria-selected={adminTab === "overview"} className={adminTab === "overview" ? "active" : ""} onClick={() => selectAdminTab("overview")}>概览</button>
+        <button type="button" role="tab" aria-selected={adminTab === "logs"} className={adminTab === "logs" ? "active" : ""} onClick={() => selectAdminTab("logs")}>请求日志</button>
+        <button type="button" role="tab" aria-selected={adminTab === "feedback"} className={adminTab === "feedback" ? "active" : ""} onClick={() => selectAdminTab("feedback")}>用户反馈</button>
+        <button type="button" role="tab" aria-selected={adminTab === "config"} className={adminTab === "config" ? "active" : ""} onClick={() => selectAdminTab("config")}>接口配置</button>
+        <button type="button" role="tab" aria-selected={adminTab === "security"} className={adminTab === "security" ? "active" : ""} onClick={() => selectAdminTab("security")}>安全加固</button>
       </nav>
 
-      {adminTab === "config" && <AdminConfigCenter />}
+      {/* 常驻挂载、非当前 tab 时隐藏：切到别的 tab 再回来，未保存的修改仍在 */}
+      <div hidden={adminTab !== "config"}>
+        <AdminConfigCenter />
+      </div>
       {adminTab === "feedback" && <AdminFeedbackPanel />}
       {adminTab === "security" && <AdminSecurityPanel />}
 
@@ -9944,9 +9985,33 @@ function HomePage({
             rows={3}
           />
           <div className="home-composer-bar">
-            <button type="button" className="home-composer-attach" onClick={onEnter} aria-label="添加参考图" title="在工作台添加参考图">
-              <ImagePlus size={17} />
-            </button>
+            <div className="home-composer-tools">
+              <button type="button" className="home-composer-attach" onClick={onEnter} aria-label="去工作台上传参考图" title="去工作台上传参考图">
+                <ImagePlus size={17} />
+              </button>
+              {/* 模型选择与工作台参数行同款胶囊；没验证 Key 时没有模型，干脆不显示 */}
+              {models.length > 0 && (
+                <label className="param-chip param-chip-model" title={selectedModel ? `生图模型：${selectedModel}` : "选择生图模型"}>
+                  <select
+                    aria-label="生图模型"
+                    value={selectedModel}
+                    onChange={(event) => onSelectModel(event.target.value)}
+                  >
+                    {!selectedModel && <option value="" disabled>选择模型</option>}
+                    {models.map((model) => {
+                      const stat = modelStats[normalizedModelId(model)];
+                      return (
+                        <option key={model} value={model}>
+                          {runtimeModelDisplayName(model)}
+                          {stat && stat.samples >= 3 ? ` · ${stat.successRate}%` : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <ChevronDown size={12} aria-hidden="true" />
+                </label>
+              )}
+            </div>
             <button
               type="button"
               className="home-composer-send"
@@ -10015,23 +10080,8 @@ function HomePage({
           </div>
         )}
 
-        <div className="home-chips" role="group" aria-label="模型与场景">
-          {models.slice(0, 4).map((model) => {
-            const stat = modelStats[normalizedModelId(model)];
-            const active = normalizedModelId(model) === normalizedModelId(selectedModel);
-            return (
-              <button
-                type="button"
-                key={model}
-                className={`home-chip${active ? " is-active" : ""}`}
-                onClick={() => onSelectModel(model)}
-              >
-                {runtimeModelDisplayName(model)}
-                {stat && stat.samples >= 3 && <em>· {stat.successRate}%</em>}
-              </button>
-            );
-          })}
-          {agents.length > 0 && <span className="home-chip-divider" aria-hidden="true" />}
+        {/* 这一行只放场景模板（点了填入提示词）；模型选择在输入框内，两种语义不再混用同一种外观 */}
+        <div className="home-chips" role="group" aria-label="场景模板">
           {agents.map((agent) => (
             <button
               type="button"
@@ -10043,7 +10093,6 @@ function HomePage({
               }}
               title={agent.description}
             >
-              <span aria-hidden="true">{agent.icon}</span>
               {agent.name}
             </button>
           ))}
@@ -10142,6 +10191,8 @@ function SquarePage({
   onCanvas,
   runningCount,
   onReproduce,
+  onCopyText,
+  onNotice,
 }: {
   apiKey: string;
   onBackHome: () => void;
@@ -10149,6 +10200,8 @@ function SquarePage({
   onCanvas: () => void;
   runningCount: number;
   onReproduce: (item: SquareFeedItem) => void;
+  onCopyText: (text: string) => void;
+  onNotice: (message: string) => void;
 }) {
   const [tab, setTab] = useState<SquareFeedTab>("latest");
   const [items, setItems] = useState<SquareFeedItem[]>([]);
@@ -10207,6 +10260,9 @@ function SquarePage({
     } catch (loadError) {
       if (seq !== feedSeqRef.current) return;
       setError(formatError(loadError));
+      // 失败后停掉自动翻页：否则底部哨兵仍在视口内，IntersectionObserver 会立刻再触发，
+      // 形成每秒上百次的重试风暴；由「重试」按钮（loadFeed(true)）恢复
+      setHasMore(false);
     } finally {
       if (seq === feedSeqRef.current) setIsLoading(false);
     }
@@ -10246,11 +10302,10 @@ function SquarePage({
 
   async function toggleLike(item: SquareFeedItem) {
     if (!apiKeyReady) {
-      setError("配置 API Key 后可点赞");
+      onNotice("配置 API Key 后可点赞");
       return;
     }
     setPendingLikeIds((current) => new Set(current).add(item.id));
-    setError("");
     try {
       const action = item.likedByRequester ? "unlike" : "like";
       const response = await fetch("/api/square/like", {
@@ -10271,7 +10326,7 @@ function SquarePage({
       ));
       void fetchQuota();
     } catch (likeError) {
-      setError(formatError(likeError));
+      onNotice(formatError(likeError));
     } finally {
       setPendingLikeIds((current) => {
         const next = new Set(current);
@@ -10335,9 +10390,12 @@ function SquarePage({
       </section>
 
       {error && (
-        <div className="square-alert">
+        <div className="square-alert" role="alert">
           <AlertCircle size={16} />
           <span>{error}</span>
+          <button type="button" className="subtle-button compact" onClick={() => void loadFeed(true)} disabled={isLoading}>
+            重试
+          </button>
         </div>
       )}
 
@@ -10349,7 +10407,7 @@ function SquarePage({
             apiKeyReady={apiKeyReady}
             pendingLike={pendingLikeIds.has(item.id)}
             onLike={() => void toggleLike(item)}
-            onCopyPrompt={() => void navigator.clipboard.writeText(item.prompt)}
+            onCopyPrompt={() => onCopyText(item.prompt)}
             onPreview={() => setPreviewItem(item)}
           />
         ))}
@@ -10361,7 +10419,7 @@ function SquarePage({
         ))}
       </section>
 
-      {!isLoading && items.length === 0 && (
+      {!isLoading && !error && items.length === 0 && (
         <div className="square-onboarding">
           <div className="square-onboarding-header">
             <h2>还没有作品，成为第一个推荐者</h2>
@@ -10414,7 +10472,7 @@ function SquarePage({
           pendingLike={pendingLikeIds.has(previewItem.id)}
           onClose={() => setPreviewItem(null)}
           onLike={() => void toggleLike(previewItem)}
-          onCopyPrompt={() => void navigator.clipboard.writeText(previewItem.prompt)}
+          onCopyPrompt={() => onCopyText(previewItem.prompt)}
           onDownload={() => downloadUrl(previewItem.thumbnailUrl, `${sanitizeFilename(previewItem.caption || previewItem.id)}.png`)}
           onReproduce={() => { setPreviewItem(null); onReproduce(previewItem); }}
         />
@@ -10478,10 +10536,12 @@ function SquareCard({
             {pendingLike ? <Loader2 size={15} className="spin" /> : <Heart size={15} />}
             <span>{item.likeCount}</span>
           </button>
-          <button type="button" className="icon-button" title="复制提示词" onClick={onCopyPrompt}>
-            <Copy size={15} />
-          </button>
-          <button type="button" className="icon-button" title="预览作品" onClick={onPreview}>
+          {item.prompt && (
+            <button type="button" className="icon-button" title="复制提示词" aria-label="复制提示词" onClick={onCopyPrompt}>
+              <Copy size={15} />
+            </button>
+          )}
+          <button type="button" className="icon-button" title="预览作品" aria-label="预览作品" onClick={onPreview}>
             <Maximize2 size={15} />
           </button>
         </div>
@@ -10587,19 +10647,24 @@ function AdminFeedbackPanel() {
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState("");
   const [drafts, setDrafts] = useState<Record<string, { status: FeatureRequestItem["status"]; adminReply: string }>>({});
+  // 加载失败不能落到「还没有用户提交反馈」；保存结果要就地可见
+  const [loadError, setLoadError] = useState("");
+  const [rowNotice, setRowNotice] = useState<{ id: string; text: string; tone: "ok" | "error" } | null>(null);
 
   const load = async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const res = await fetch("/api/admin/feature-requests", { credentials: "same-origin" });
       const data = await res.json();
-      if (data.ok) {
-        setItems(data.items || []);
-        setDrafts(Object.fromEntries((data.items || []).map((item: AdminFeatureRequest) => [
-          item.id, { status: item.status, adminReply: item.adminReply },
-        ])));
-      }
-    } catch { /* 刷新按钮兜底 */ }
+      if (!res.ok || !data.ok) throw new Error(String(data.error || "反馈列表加载失败"));
+      setItems(data.items || []);
+      setDrafts(Object.fromEntries((data.items || []).map((item: AdminFeatureRequest) => [
+        item.id, { status: item.status, adminReply: item.adminReply },
+      ])));
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "反馈列表加载失败");
+    }
     setLoading(false);
   };
 
@@ -10609,6 +10674,7 @@ function AdminFeedbackPanel() {
     const draft = drafts[id];
     if (!draft) return;
     setSavingId(id);
+    setRowNotice(null);
     try {
       const res = await fetch(`/api/admin/feature-requests/${id}`, {
         method: "PUT",
@@ -10619,7 +10685,11 @@ function AdminFeedbackPanel() {
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(String(data.error || "保存失败"));
       setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...draft, updatedAt: Date.now() } : item)));
-    } catch { /* 保持草稿，管理员可重试 */ }
+      setRowNotice({ id, text: "已保存", tone: "ok" });
+    } catch (error) {
+      // 保持草稿，管理员可重试
+      setRowNotice({ id, text: error instanceof Error ? error.message : "保存失败", tone: "error" });
+    }
     setSavingId("");
   }
 
@@ -10633,6 +10703,8 @@ function AdminFeedbackPanel() {
       </div>
       {loading ? (
         <div className="muted-box">加载中…</div>
+      ) : loadError ? (
+        <div className="admin-security-notice is-error" role="alert">{loadError}，请点击刷新重试</div>
       ) : items.length === 0 ? (
         <div className="muted-box">还没有用户提交反馈</div>
       ) : (
@@ -10681,6 +10753,11 @@ function AdminFeedbackPanel() {
                 >
                   {savingId === item.id ? "保存中…" : "保存"}
                 </button>
+                {rowNotice?.id === item.id && (
+                  <span className={`admin-inline-notice${rowNotice.tone === "error" ? " is-error" : ""}`} role="status">
+                    {rowNotice.text}
+                  </span>
+                )}
               </div>
             </article>
           ))}
@@ -10733,7 +10810,11 @@ function AdminSecurityPanel() {
   const [saving, setSaving] = useState(false);
   const [banHash, setBanHash] = useState("");
   const [banReason, setBanReason] = useState("");
-  const [notice, setNotice] = useState("");
+  // 成功与失败用不同样式：原先共用一个中性提示条，失败看起来像成功
+  const [notice, setNoticeState] = useState<{ text: string; tone: "ok" | "error" }>({ text: "", tone: "ok" });
+  const setNotice = (text: string, tone: "ok" | "error" = "ok") => setNoticeState({ text, tone });
+  // 封禁前二次确认：被封 IP 连后台登录也会 403，误点自己的 IP 会把自己锁在外面
+  const [pendingBan, setPendingBan] = useState<{ hash: string; reason: string } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -10747,8 +10828,12 @@ function AdminSecurityPanel() {
         setLockouts(data.lockouts || []);
         setEvents(data.events || []);
         setCounters(data.counters || {});
+      } else {
+        setNotice(String(data.error || "安全数据加载失败，请点击刷新重试"), "error");
       }
-    } catch { /* 刷新按钮兜底 */ }
+    } catch {
+      setNotice("安全数据加载失败，请检查网络后点击刷新重试", "error");
+    }
     setLoading(false);
   };
 
@@ -10771,17 +10856,24 @@ function AdminSecurityPanel() {
       setDraft(data.thresholds);
       setNotice("阈值已保存，立即对后续请求生效");
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "保存失败");
+      setNotice(error instanceof Error ? error.message : "保存失败", "error");
     }
     setSaving(false);
   }
 
-  async function ban(hash: string, reason: string) {
+  function ban(hash: string, reason: string) {
     const clean = hash.trim().toLowerCase();
     if (!/^[0-9a-f]{16}$/.test(clean)) {
-      setNotice("IP 标识需为 16 位十六进制哈希（可从下方事件/锁定列表复制）");
+      setNotice("IP 标识需为 16 位十六进制哈希（可从下方事件/锁定列表复制）", "error");
       return;
     }
+    setPendingBan({ hash: clean, reason });
+  }
+
+  async function confirmBan() {
+    if (!pendingBan) return;
+    const { hash: clean, reason } = pendingBan;
+    setPendingBan(null);
     try {
       const res = await fetch("/api/admin/security/ban", {
         method: "POST",
@@ -10796,7 +10888,7 @@ function AdminSecurityPanel() {
       setBanReason("");
       setNotice(`已封禁 ${clean}`);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "封禁失败");
+      setNotice(error instanceof Error ? error.message : "封禁失败", "error");
     }
   }
 
@@ -10809,8 +10901,12 @@ function AdminSecurityPanel() {
         body: JSON.stringify({ hash }),
       });
       const data = await res.json();
-      if (data.ok) setBans(data.bans || []);
-    } catch { /* 忽略：列表会在下次刷新校正 */ }
+      if (!res.ok || !data.ok) throw new Error(String(data.error || "解除封禁失败"));
+      setBans(data.bans || []);
+      setNotice(`已解除封禁 ${hash}`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "解除封禁失败", "error");
+    }
   }
 
   const bannedSet = new Set(bans.map((item) => item.hash));
@@ -10823,7 +10919,23 @@ function AdminSecurityPanel() {
           <RefreshCw size={15} /> 刷新
         </button>
       </div>
-      {notice && <div className="admin-security-notice">{notice}</div>}
+      {notice.text && (
+        <div
+          className={`admin-security-notice${notice.tone === "error" ? " is-error" : ""}`}
+          role={notice.tone === "error" ? "alert" : "status"}
+        >
+          {notice.text}
+        </div>
+      )}
+      {pendingBan && (
+        <ConfirmDialog
+          title="确认封禁该 IP？"
+          body={`将封禁 ${pendingBan.hash}。被封禁的 IP 无法生成、分析、提交反馈，也无法登录后台——如果这是你自己当前的 IP，退出登录后将无法再进入后台。`}
+          confirmLabel="确认封禁"
+          onCancel={() => setPendingBan(null)}
+          onConfirm={() => void confirmBan()}
+        />
+      )}
 
       {loading || !draft ? (
         <div className="muted-box">加载中…</div>
@@ -10890,7 +11002,7 @@ function AdminSecurityPanel() {
                 placeholder="封禁原因（可选）"
                 maxLength={200}
               />
-              <button type="button" className="subtle-button" onClick={() => void ban(banHash, banReason)}>
+              <button type="button" className="subtle-button" onClick={() => ban(banHash, banReason)}>
                 <Ban size={14} /> 封禁
               </button>
             </div>
@@ -10924,7 +11036,7 @@ function AdminSecurityPanel() {
                         {item.lockedUntil > Date.now() ? `锁定至 ${formatDate(item.lockedUntil)}` : `失败 ${item.fails} 次`}
                       </span>
                       {!bannedSet.has(item.ipHash) && (
-                        <button type="button" className="subtle-button" onClick={() => void ban(item.ipHash, "登录高频失败")}>封禁</button>
+                        <button type="button" className="subtle-button" onClick={() => ban(item.ipHash, "登录高频失败")}>封禁</button>
                       )}
                     </li>
                   ))}
@@ -10945,7 +11057,7 @@ function AdminSecurityPanel() {
                       {item.detail && <span className="admin-security-detail">{item.detail}</span>}
                       <small>{formatDate(item.at)}</small>
                       {!bannedSet.has(item.ipHash) && /^[0-9a-f]{16}$/.test(item.ipHash) && (
-                        <button type="button" className="link-button" onClick={() => void ban(item.ipHash, `来自事件：${item.type}`)}>封禁</button>
+                        <button type="button" className="link-button" onClick={() => ban(item.ipHash, `来自事件：${item.type}`)}>封禁</button>
                       )}
                     </li>
                   ))}
