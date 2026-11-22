@@ -11,6 +11,7 @@ import {
   ImagePlus,
   Loader2,
   Maximize2,
+  Monitor,
   PanelRightClose,
   PanelRightOpen,
   Pin,
@@ -677,6 +678,10 @@ export function CanvasPage({
   const isPanningRef = useRef(false);
   const isDraggingNodeRef = useRef(false);
   const panStartRef = useRef({ screenX: 0, screenY: 0, vpX: 0, vpY: 0 });
+  // 右键拖动平移后 Windows 会在松手时补发 contextmenu：真的拖动过就吞掉这次菜单
+  const panMovedRef = useRef(false);
+  // 窄屏提示可被关掉（「仍然继续」），只在本次页面生命周期内记住
+  const [isMobileNoticeDismissed, setIsMobileNoticeDismissed] = useState(false);
   // origins 记录按下瞬间「所有要移动的节点」的原坐标：多选时整个选区一起走。
   // 用「原点 + 总位移」而不是逐帧累加，避免缩放下的浮点漂移。
   const dragStartRef = useRef<{
@@ -1064,6 +1069,7 @@ export function CanvasPage({
     if (e.button === 1 || e.button === 2 || (e.button === 0 && isSpaceHeld)) {
       e.preventDefault();
       isPanningRef.current = true;
+      panMovedRef.current = false;
       containerRef.current?.classList.add("is-panning");
       panStartRef.current = {
         screenX: e.clientX,
@@ -1102,6 +1108,9 @@ export function CanvasPage({
     if (isPanningRef.current) {
       const ps = panStartRef.current;
       const vp = viewportRef.current;
+      if (Math.abs(e.clientX - ps.screenX) > 4 || Math.abs(e.clientY - ps.screenY) > 4) {
+        panMovedRef.current = true;
+      }
       viewportRef.current = {
         x: ps.vpX - (e.clientX - ps.screenX) / vp.zoom,
         y: ps.vpY - (e.clientY - ps.screenY) / vp.zoom,
@@ -1543,6 +1552,10 @@ export function CanvasPage({
   // ── Context menu prevention ──
   function handleContextMenu(e: React.MouseEvent) {
     e.preventDefault();
+    if (panMovedRef.current) {
+      panMovedRef.current = false;
+      return;
+    }
     // 右键落在节点上就开菜单；落在空白处保持原有的平移语义
     const nodeEl = (e.target as HTMLElement).closest?.(".canvas-node");
     if (!nodeEl) {
@@ -2456,6 +2469,19 @@ export function CanvasPage({
   return (
     <main className={`canvas-page ${isPanelOpen ? "" : "panel-collapsed"}`}>
       {/* 一级导航由全局 AppHeader 承担（App 分支渲染），画布不再自带顶栏 */}
+
+      {/* 画布以桌面为主（鼠标平移/右键/快捷键），窄屏只给提示，显隐完全由 CSS 媒体查询决定 */}
+      {!isMobileNoticeDismissed && (
+        <div className="canvas-mobile-notice" role="dialog" aria-label="画布建议在电脑上使用">
+          <Monitor size={28} aria-hidden="true" />
+          <strong>画布建议在电脑上使用</strong>
+          <p>无限画布依赖鼠标拖拽、右键菜单和快捷键，在手机上难以操作。手机上可以用工作台生成图片。</p>
+          <div className="canvas-mobile-notice-actions">
+            <button type="button" className="primary-action compact" onClick={onEnterStudio}>去工作台</button>
+            <button type="button" className="subtle-button" onClick={() => setIsMobileNoticeDismissed(true)}>仍然继续</button>
+          </div>
+        </div>
+      )}
 
       {/* Canvas viewport */}
       <div

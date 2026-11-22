@@ -10121,9 +10121,13 @@ function SquarePage({
     }
   }
 
+  // 请求序号：切 tab / 换 Key 的重置请求总是立刻发出，晚到的旧请求结果一律丢弃，
+  // 否则 tab 已高亮「热门」，列表却被旧 tab 的响应覆盖（分页游标也会串）
+  const feedSeqRef = useRef(0);
+
   async function loadFeed(reset = false) {
-    if (isLoading) return;
-    if (!reset && !hasMore) return;
+    if (!reset && (isLoading || !hasMore)) return;
+    const seq = ++feedSeqRef.current;
     setIsLoading(true);
     setError("");
     try {
@@ -10136,14 +10140,16 @@ function SquarePage({
       if (apiKeyReady) headers["x-imagehub-api-key"] = apiKey;
       const response = await fetch(`/api/square/feed?${query.toString()}`, { headers });
       const payload = await readApiJson<SquareFeedResponse>(response, "/api/square/feed");
+      if (seq !== feedSeqRef.current) return;
       if (!response.ok || !payload.ok) throw payload;
       setItems((current) => reset ? payload.items : mergeSquareItems(current, payload.items));
       setCursor(payload.nextCursor || "");
       setHasMore(payload.hasMore);
     } catch (loadError) {
+      if (seq !== feedSeqRef.current) return;
       setError(formatError(loadError));
     } finally {
-      setIsLoading(false);
+      if (seq === feedSeqRef.current) setIsLoading(false);
     }
   }
 
