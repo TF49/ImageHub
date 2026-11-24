@@ -1395,6 +1395,65 @@ function describeError(error: unknown, depth = 0): string {
   return parts.join(" ");
 }
 
+// ── 上游网络错误分类 ──
+// undici 抛的是 `fetch failed` / `terminated` 这类英文原文，用户看不出是线路问题、也不知道该不该重试。
+// 分两类，前端只对第一类自动重试——第二类上游可能已经开始生成，自动重试有重复扣费风险：
+//   upstream_unreachable：连接没建起来（拒绝/DNS/路由/建连超时），请求一定没送达，不会计费；
+//   upstream_network：连接建立后断开（发送中、等待响应、读响应体途中），上游可能已计费。
+const UPSTREAM_CONNECT_CODES = new Set([
+  "ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH", "UND_ERR_CONNECT_TIMEOUT",
+]);
+const UPSTREAM_DROPPED_CODES = new Set([
+  "ECONNRESET", "EPIPE", "ETIMEDOUT", "ECONNABORTED", "UND_ERR_SOCKET", "UND_ERR_CLOSED",
+]);
+
+function findNetworkErrorCode(error: unknown): string | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current && typeof current === "object"; depth++) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string" && (UPSTREAM_CONNECT_CODES.has(code) || UPSTREAM_DROPPED_CODES.has(code))) return code;
+    // Node 多地址建连失败时 cause 是 AggregateError，code 可能只挂在子错误上
+    const nested = (current as { errors?: unknown }).errors;
+    if (Array.isArray(nested)) {
+      for (const item of nested) {
+        const itemCode = (item as { code?: unknown } | null)?.code;
+        if (typeof itemCode === "string" && (UPSTREAM_CONNECT_CODES.has(itemCode) || UPSTREAM_DROPPED_CODES.has(itemCode))) return itemCode;
+      }
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
+function classifyUpstreamNetworkError(error: unknown) {
+  const code = findNetworkErrorCode(error);
+  if (!code) return null;
+  // upstreamPhase 由 fetchWithTimeout 在拿到响应头之前出错时打上；
+  // 没有标记说明错误发生在读响应体（undici 的 `terminated`）或下载结果图片时
+  const beforeResponse = (error as { upstreamPhase?: string } | null)?.upstreamPhase === "request";
+  const tail = "通常是中转站重启或线路波动，与提示词和参数无关";
+  if (beforeResponse && UPSTREAM_CONNECT_CODES.has(code)) {
+    return {
+      code,
+      type: "upstream_unreachable" as const,
+      forwarded: false,
+      message: `无法连接到上游服务（${code}），请求未送达，不会计费。${tail}，请稍后重试`,
+    };
+  }
+  const where = beforeResponse
+    ? "在处理请求时"
+    : error instanceof Error && error.message === "terminated"
+      ? "在返回结果途中"
+      : "在传输结果时";
+  return {
+    code,
+    type: "upstream_network" as const,
+    forwarded: true,
+    message: `上游服务${where}断开了连接（${code}），${tail}。`
+      + "上游可能已开始生成，为避免重复扣费未自动重试，如需重新生成请点「重试」",
+  };
+}
+
 function safeErrorSummary(detail: unknown) {
   const record = detail && typeof detail === "object" ? detail as Record<string, unknown> : {};
   const error = record.error && typeof record.error === "object" ? record.error as Record<string, unknown> : {};
@@ -1555,17 +1614,28 @@ async function executeGenerationTask(task: QueuedGenerationTask) {
     const message = error instanceof Error ? error.message : String(error);
     const causeError = (error as { cause?: unknown })?.cause;
     const causeMessage = causeError instanceof Error ? causeError.message : "";
-    const summaryMessage = redactCredentialText(causeMessage && causeMessage !== message ? `${message}（${causeMessage}）` : message);
+    const network = classifyUpstreamNetworkError(error);
+    // 网络类错误给中文可读说明；原始 undici 报错照旧进 errorFull 供后台排查
+    const summaryMessage = network
+      ? network.message
+      : redactCredentialText(causeMessage && causeMessage !== message ? `${message}（${causeMessage}）` : message);
+    // 网络断开不是「参考图上传失败」：建连失败时参考图还在服务端没发出去，断开时已经随请求送达
+    const referenceUploadStatus: NonNullable<RequestLog["referenceUploadStatus"]> = task.referenceCount === 0
+      ? "none"
+      : network
+        ? (network.forwarded ? "forwarded" : "received")
+        : "failed";
     const finishedAt = Date.now();
     updateRequestLog(requestId, {
       status: "error",
-      httpStatus: 500,
+      httpStatus: network ? 502 : 500,
       errorMessage: truncateText(summaryMessage, 800),
-      errorType: "proxy_error",
+      errorType: network ? network.type : "proxy_error",
+      errorCode: network?.code,
       errorRaw: redactImageText(summaryMessage, 2500),
       errorFull: redactImageText(describeError(error), 60000),
       responseBody: sanitizeForLog({ ok: false, detail: { error: summaryMessage } }),
-      referenceUploadStatus: "failed",
+      referenceUploadStatus,
       finishedAt,
       durationMs: finishedAt - dispatchedAt,
       stages: { taskCompletedAt: finishedAt },
@@ -2819,6 +2889,11 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
     const code = (error as { cause?: { code?: string } } | undefined)?.cause?.code;
     if (code === "UND_ERR_HEADERS_TIMEOUT" || code === "UND_ERR_BODY_TIMEOUT") {
       throw new Error(`上游超过 ${Math.round(UNDICI_DEFAULT_TIMEOUT_MS / 1000)} 秒没有返回响应，连接已被底层断开`);
+    }
+    // 打上「还没拿到响应头」的标记：classifyUpstreamNetworkError 靠它区分
+    // 建连失败（请求没送达，可安全重试）与读响应体途中断开（上游可能已计费）。
+    if (error && typeof error === "object") {
+      try { (error as { upstreamPhase?: string }).upstreamPhase = "request"; } catch { /* 冻结对象就不标了 */ }
     }
     throw error;
   } finally {

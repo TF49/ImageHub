@@ -3504,6 +3504,9 @@ export default function App() {
   // 关掉页面再回来同样走这条路径——这正是「关页面不丢」的实现。
   const visibleRecordsRef = useRef<Job[]>([]);
   visibleRecordsRef.current = visibleRecords;
+  // 对账 effect 只挂一次，自动重提时要拿最新的连接配置（用户可能中途换了 Key）
+  const apiConfigRef = useRef(apiConfig);
+  apiConfigRef.current = apiConfig;
   const reconcilingRef = useRef(false);
   const studioTaskMissCountsRef = useRef<Map<string, number>>(new Map());
 
@@ -3703,6 +3706,69 @@ export default function App() {
               });
             }
           } else if (task.status === "error") {
+            const attempt = job.attempt ?? 1;
+            const maxAttempts = job.maxAttempts ?? 1;
+            // 「失败自动重试」在异步队列下的落点：上游失败是在这里对账拿到的，不经过 POST 的 catch。
+            // 只重试 upstream_unreachable——服务端确认请求没送达上游、不会计费；
+            // upstream_network（连接建立后断开）上游可能已在生成，自动重试有重复扣费风险，交给用户手动「重试」。
+            if (task.errorType === "upstream_unreachable" && attempt < maxAttempts) {
+              const nextAttempt = attempt + 1;
+              const backoffMs = Math.min(15000, 3000 * Math.pow(2, attempt - 1));
+              // 必须换新 requestId：服务端对已用过的 ID 走幂等重放，只会把这次的失败原样还回来
+              const nextRequestId = uid();
+              const errorDetail = { error: task.errorMessage || "上游连接失败", requestId: job.requestId };
+              const retryJob: Job = {
+                ...job,
+                requestId: nextRequestId,
+                status: "queued",
+                attempt: nextAttempt,
+                maxAttempts,
+                errorDetail,
+                startedAt: undefined,
+                finishedAt: undefined,
+                durationMs: undefined,
+                stages: undefined,
+              };
+              patchVisibleRecord(job.id, {
+                requestId: nextRequestId,
+                status: "queued",
+                errorDetail,
+                startedAt: undefined,
+                finishedAt: undefined,
+                durationMs: undefined,
+                stages: undefined,
+                attempt: nextAttempt,
+                maxAttempts,
+              });
+              await saveHistoryRecord(storedRecordForJob(retryJob, {
+                requestId: nextRequestId,
+                status: "queued",
+                startedAt: undefined,
+                finishedAt: undefined,
+                durationMs: undefined,
+                stages: undefined,
+                errorDetail,
+              }));
+              pushLocalLog({
+                type: "image_generation",
+                level: "warning",
+                title: `上游连接失败 #${job.index}/${job.total}，${Math.round(backoffMs / 1000)}s 后自动重试 (${nextAttempt}/${maxAttempts})`,
+                message: task.errorMessage || "上游连接失败",
+                endpoint: "/api/tasks",
+                requestId: job.requestId,
+                durationMs: task.durationMs,
+                response: {
+                  phase: "client_error_received",
+                  status: task.status,
+                  errorType: task.errorType,
+                  retry: { attempt, nextAttempt, maxAttempts, backoffMs, nextRequestId },
+                },
+              });
+              window.setTimeout(() => {
+                enqueueJobs([retryJob], apiConfigRef.current);
+              }, backoffMs);
+              continue;
+            }
             const finishedAt = Date.now();
             const errorDetail = { error: task.errorMessage || "生成失败" };
             patchVisibleRecord(job.id, {
