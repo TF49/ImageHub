@@ -7,9 +7,9 @@
 - 状态：`自审后最终版`
 - 对应产品：`Image Studio`
 - 对应代码基线：
-  - 前端主入口：[src/App.tsx](/Users/bobdong/项目/Codex Image 测试/src/App.tsx:2638)
-  - 交互样式：[src/styles.css](/Users/bobdong/项目/Codex Image 测试/src/styles.css:3500)
-  - 本地 API / 中间层：[vite.config.ts](/Users/bobdong/项目/Codex Image 测试/vite.config.ts:1634)
+  - 前端主入口：[src/App.tsx](../src/App.tsx:2638)
+  - 交互样式：[src/styles.css](../src/styles.css:3500)
+  - 本地 API / 中间层：[vite.config.ts](../vite.config.ts:1634)
 
 ## 2. 背景与问题
 
@@ -1081,7 +1081,7 @@ Agent 模式 A 不直接绕开现有模型和协议体系，而是遵循以下�
 
 ## 18.1 中间层职责
 
-在现有 [vite.config.ts](/Users/bobdong/项目/Codex Image 测试/vite.config.ts:1634) 的基础上增加两层能力：
+在现有 [vite.config.ts](../vite.config.ts:1634) 的基础上增加两层能力：
 
 - `Agent orchestration`
 - `Brochure workflow`

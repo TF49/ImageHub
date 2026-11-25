@@ -443,7 +443,7 @@ type CanvasState = {
 画布模式不新增任何后端接口。生成请求复用现有的 `/api/images/generate` 端点。
 
 **共享的配置项**：
-- `apiConfig.baseUrl` — API URL（太极 AI / BobDong）
+- `apiConfig.baseUrl` — API URL（太极 AI 或后台配置的站点）
 - `apiConfig.apiKey` — API Key
 - `apiConfig.protocol` — 生图协议
 - `selectedModel` — 选中模型

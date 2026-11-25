@@ -11,11 +11,6 @@ export const ALLOWED_API_ENDPOINTS: { value: string; label: string; description:
     label: "太极 AI",
     description: "主服务地址",
   },
-  {
-    value: "https://bobdong.cn/",
-    label: "BobDong",
-    description: "备用服务地址",
-  },
 ];
 export const DEFAULT_API_URL = ALLOWED_API_ENDPOINTS[0].value;
 

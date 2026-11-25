@@ -369,7 +369,7 @@ const GPT_IMAGE_2_PRO_MODEL = "gpt-image-2-pro";
 const GPT_IMAGE_2_FAMILY_MODEL = "gpt-5.4-image-2";
 const GEMINI_3_PRO_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const GEMINI_NATIVE_API_PREFIX = "/v1beta";
-const ALLOWED_API_BASE_URLS: string[] = ["https://www.taijiai.online/", "https://bobdong.cn/"];
+const ALLOWED_API_BASE_URLS: string[] = ["https://www.taijiai.online/"];
 const SESSION_COOKIE = "image_studio_admin_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 8;
 const DATA_DIR = join(process.cwd(), ".data");
@@ -753,9 +753,7 @@ function defaultConfigStore(): ConfigStore {
     version: 1,
     updatedAt: new Date().toISOString(),
     upstreams: [
-      { id: "taiji", name: "太极 AI", baseUrl: "https://www.taijiai.online/", enabled: true, note: "主服务地址", sort: 1 },
-      { id: "bobdong", name: "BobDong", baseUrl: "https://bobdong.cn/", enabled: true, note: "备用服务地址", sort: 2 },
-    ],
+      { id: "taiji", name: "太极 AI", baseUrl: "https://www.taijiai.online/", enabled: true, note: "主服务地址", sort: 1 },    ],
     // 只预置一个确定存在的模型：方案 B 下用户能看到哪些模型由上游 /models 决定，
     // 这里只影响排序和展示名；预置不存在的模型只会让后台误以为它们可用
     models: [
