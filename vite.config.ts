@@ -754,7 +754,8 @@ function defaultConfigStore(): ConfigStore {
     updatedAt: new Date().toISOString(),
     upstreams: [
       { id: "bobapi", name: "Bob API", baseUrl: "https://api.bob-api.com/", enabled: true, note: "主服务地址", sort: 1 },
-      { id: "taiji", name: "太极 AI", baseUrl: "https://www.taijiai.online/", enabled: true, note: "备用服务地址", sort: 2 },    ],
+      { id: "taiji", name: "太极 AI", baseUrl: "https://www.taijiai.online/", enabled: true, note: "备用服务地址", sort: 2 },
+    ],
     // 只预置一个确定存在的模型：方案 B 下用户能看到哪些模型由上游 /models 决定，
     // 这里只影响排序和展示名；预置不存在的模型只会让后台误以为它们可用
     models: [
@@ -833,11 +834,51 @@ function readConfigStore(): ConfigStore {
       },
     };
     configStoreCache = merged;
+    if (migrateRetiredUpstreams(merged)) writeConfigStore(merged);
     return merged;
   } catch {
     configStoreCache = fallback;
     return fallback;
   }
+}
+
+// 一次性迁移（2026-11）：BobDong 已停用，Bob API 升为主服务、太极 AI 降为备用。
+// config-store.json 不进 git、只在首次运行时由 defaultConfigStore() 生成，
+// 改默认值碰不到已部署实例——所以在读配置时修正旧数据。
+// 触发条件是"仍含 bobdong.cn 站点"：迁移后该站点不复存在，因此只会执行一次，
+// 之后管理员在后台的排序/启停调整不会被覆盖。
+const RETIRED_UPSTREAM_HOSTS = ["bobdong.cn", "www.bobdong.cn"];
+const PRIMARY_UPSTREAM = { name: "Bob API", baseUrl: "https://api.bob-api.com/" };
+
+function upstreamHost(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function migrateRetiredUpstreams(store: ConfigStore): boolean {
+  if (!store.upstreams.some((u) => RETIRED_UPSTREAM_HOSTS.includes(upstreamHost(u.baseUrl)))) return false;
+  const kept = store.upstreams
+    .filter((u) => !RETIRED_UPSTREAM_HOSTS.includes(upstreamHost(u.baseUrl)))
+    .sort((a, b) => a.sort - b.sort);
+  const isBob = (u: { baseUrl: string }) => /(^|\.)bob-api\.com$/.test(upstreamHost(u.baseUrl));
+  let primary = kept.find(isBob);
+  if (!primary) {
+    const id = kept.some((u) => u.id === "bobapi") ? `bobapi-${Date.now()}` : "bobapi";
+    primary = { id, name: PRIMARY_UPSTREAM.name, baseUrl: PRIMARY_UPSTREAM.baseUrl, enabled: true, note: "", sort: 0 };
+  }
+  primary.enabled = true;
+  primary.note = "主服务地址";
+  const ordered = [primary, ...kept.filter((u) => u !== primary)];
+  ordered.forEach((u, index) => {
+    u.sort = index + 1;
+    if (u !== primary && u.note === "主服务地址") u.note = "备用服务地址";
+  });
+  store.upstreams = ordered;
+  console.info("[config] 已迁移上游站点：移除 BobDong，Bob API 设为主服务地址");
+  return true;
 }
 
 function writeConfigStore(store: ConfigStore) {
