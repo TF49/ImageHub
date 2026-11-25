@@ -2778,8 +2778,9 @@ function generationEndpointLabel(protocol: ImageProtocol, model = "", referenceC
       ? "/v2beta/stable-image/generate/ultra"
       : "/v2beta/stable-image/generate/core";
   }
-  if (protocol === "openai-images" && referenceCount > 0) return "/v1/images/edits → /v1/images/generations";
-  if (protocol === "custom-openai" && referenceCount > 0) return "/v1/images/generations";
+  if ((protocol === "openai-images" || protocol === "custom-openai") && referenceCount > 0) {
+    return "/v1/images/edits → /v1/images/generations";
+  }
   return protocol === "gemini-openai" ? "/images/generations" : "/v1/images/generations";
 }
 
@@ -3296,10 +3297,15 @@ function shouldFallbackToGeneration(result: ImageResult) {
   return /invalid url|not found|method not allowed|unsupported|unknown endpoint|no route|content-type/.test(detailText);
 }
 
-function shouldFallbackReferenceEditToGeneration(result: ImageResult) {
+function shouldFallbackReferenceEditToGeneration(result: ImageResult, protocol: ImageProtocol = "openai-images") {
   if (result.ok) return false;
   const status = result.status || 0;
   if (status === 401 || status === 403) return true;
+  // 兼容中转：/v1/images/edits 不存在或不接受参数时，各家报错文案五花八门，
+  // 按状态码整类回退到 generations + image 字段（即改动前的老路径）。
+  // 5xx / 429 不回退：那是上游临时故障，回退过去参考图大概率被静默丢弃，
+  // 用户会拿到一张"成功但没参考"的图，比明确报错更糟。
+  if (protocol === "custom-openai" && [400, 404, 405, 415, 422, 501].includes(status)) return true;
   return shouldFallbackToGeneration(result);
 }
 
@@ -4659,9 +4665,23 @@ async function readGenericJsonImageResponse(response: Response, outputFormat: st
   };
 }
 
-async function generateOpenAiImageEdit(baseUrl: string, apiKey: string, request: GenerateRequest, references: ReferenceImage[], requestId?: string) {
+async function generateOpenAiImageEdit(
+  baseUrl: string,
+  apiKey: string,
+  request: GenerateRequest,
+  references: ReferenceImage[],
+  requestId?: string,
+  protocol: ImageProtocol = "openai-images",
+) {
   const outputFormat = request.outputFormat || "png";
-  const requestSize = imageSizeForProtocol(request, "openai-images");
+  const requestSize = imageSizeForProtocol(request, protocol);
+  // 与 generations 分支保持一致：兼容协议下的非 gpt-image-2 模型靠 aspect_ratio / resolution 定尺寸
+  const extraAspectRatio = protocol === "custom-openai" && !isGptImage2Model(request.model) && request.aspectRatio
+    ? request.aspectRatio
+    : undefined;
+  const extraResolution = protocol === "custom-openai" && !isGptImage2Model(request.model) && request.resolution && request.resolution !== "1K"
+    ? request.resolution
+    : undefined;
   const form = new FormData();
   form.append("model", request.model || "gpt-image-2");
   form.append("prompt", fullPrompt(request));
@@ -4670,6 +4690,8 @@ async function generateOpenAiImageEdit(baseUrl: string, apiKey: string, request:
   if (requestSize && requestSize !== "auto") form.append("size", requestSize);
   if (request.quality && request.quality !== "auto") form.append("quality", request.quality);
   if (outputFormat && outputFormat !== "png") form.append("output_format", outputFormat);
+  if (extraAspectRatio) form.append("aspect_ratio", extraAspectRatio);
+  if (extraResolution) form.append("resolution", extraResolution);
   references.forEach((image, index) => {
     const { mime, data } = referenceImageToBuffer(image);
     const fileName = image.name || `reference-${index + 1}.${mime.split("/")[1] || "png"}`;
@@ -4687,6 +4709,8 @@ async function generateOpenAiImageEdit(baseUrl: string, apiKey: string, request:
         ...(requestSize && requestSize !== "auto" ? ["size"] : []),
         ...(request.quality && request.quality !== "auto" ? ["quality"] : []),
         ...(outputFormat && outputFormat !== "png" ? ["output_format"] : []),
+        ...(extraAspectRatio ? ["aspect_ratio"] : []),
+        ...(extraResolution ? ["resolution"] : []),
         "image[]",
       ],
       upstreamReferenceCount: references.length,
@@ -4700,6 +4724,8 @@ async function generateOpenAiImageEdit(baseUrl: string, apiKey: string, request:
         size: requestSize && requestSize !== "auto" ? requestSize : undefined,
         quality: request.quality && request.quality !== "auto" ? request.quality : undefined,
         output_format: outputFormat && outputFormat !== "png" ? outputFormat : undefined,
+        aspect_ratio: extraAspectRatio,
+        resolution: extraResolution,
         referenceImages: references,
       }),
     });
@@ -4720,9 +4746,12 @@ async function generateOpenAiCompatible(baseUrl: string, apiKey: string, request
   const references = Array.isArray(request.referenceImages) ? request.referenceImages : [];
   const outputFormat = request.outputFormat || "png";
   let editFallback: Record<string, unknown> | undefined;
-  if (protocol === "openai-images" && references.length > 0) {
-    const editResult = await generateOpenAiImageEdit(baseUrl, apiKey, request, references, requestId);
-    if (editResult.ok || !shouldFallbackReferenceEditToGeneration(editResult)) {
+  // 参考图必须走 /v1/images/edits（multipart image[]）。2026-11 用真实 Key 对 Bob API / 太极实测：
+  // generations + JSON image 字段会返回 200 但完全忽略参考图（纯文生图），
+  // 而 edits 能保持人物、姿势与构图。custom-openai 以前只走 generations，导致"始终不参考参考图"。
+  if ((protocol === "openai-images" || protocol === "custom-openai") && references.length > 0) {
+    const editResult = await generateOpenAiImageEdit(baseUrl, apiKey, request, references, requestId, protocol);
+    if (editResult.ok || !shouldFallbackReferenceEditToGeneration(editResult, protocol)) {
       return editResult;
     }
     const summary = safeErrorSummary(editResult.detail);
