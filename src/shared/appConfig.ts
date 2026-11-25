@@ -7,9 +7,14 @@ export const API_KEY_MIN_LENGTH = 8;
 
 export const ALLOWED_API_ENDPOINTS: { value: string; label: string; description: string }[] = [
   {
+    value: "https://api.bob-api.com/",
+    label: "Bob API",
+    description: "主服务地址",
+  },
+  {
     value: "https://www.taijiai.online/",
     label: "太极 AI",
-    description: "主服务地址",
+    description: "备用服务地址",
   },
 ];
 export const DEFAULT_API_URL = ALLOWED_API_ENDPOINTS[0].value;
