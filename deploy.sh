@@ -10,6 +10,10 @@
 #    ./deploy.sh status       # 查看运行状态
 #    ./deploy.sh systemd      # 生成并安装 systemd 服务（需 sudo）
 #
+#  进程管理：若已安装并启用 systemd 服务（imagehub.service），start/stop/restart/status
+#  以及默认部署动作都会自动改走 systemctl；否则用 nohup + PID 文件管理。
+#  两种方式不能并存——nohup 进程会占住端口，让 systemd 服务反复 EADDRINUSE 崩溃重启。
+#
 #  端口：环境变量 PORT 控制，默认 8877
 #  数据：全部在 ./.data/ 目录（SQLite、图片、配置），升级部署不受影响，建议定期备份
 # ══════════════════════════════════════════════════════════════
@@ -79,6 +83,77 @@ build_all() {
   npm run build:server
 }
 
+# ── systemd 模式 ─────────────────────────────────────────────
+uses_systemd() {
+  command -v systemctl >/dev/null 2>&1 \
+    && systemctl is-enabled --quiet "$APP_NAME.service" 2>/dev/null
+}
+
+run_systemctl() {
+  if [ "$(id -u)" -eq 0 ]; then
+    systemctl "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo systemctl "$@"
+  else
+    fail "需要 root 权限执行 systemctl $*"
+  fi
+}
+
+wait_healthy() {
+  for _ in $(seq 1 20); do
+    curl -sf "http://127.0.0.1:$PORT/healthz" >/dev/null && return 0
+    sleep 0.5
+  done
+  return 1
+}
+
+# 清理 nohup 方式残留的进程（PID 文件所指），以及不属于 systemd 服务的端口占用者
+stop_legacy_process() {
+  if [ -f "$PID_FILE" ]; then
+    local pid
+    pid=$(cat "$PID_FILE")
+    if kill -0 "$pid" 2>/dev/null; then
+      warn "发现 nohup 方式启动的旧进程 (pid $pid)，停止中..."
+      kill "$pid" 2>/dev/null || true
+      for _ in $(seq 1 10); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+    rm -f "$PID_FILE"
+  fi
+  local main_pid holder
+  main_pid=$(systemctl show -p MainPID --value "$APP_NAME.service" 2>/dev/null || echo 0)
+  for holder in $(lsof -ti tcp:"$PORT" -s tcp:LISTEN 2>/dev/null || true); do
+    [ "$holder" = "$main_pid" ] && continue
+    warn "端口 $PORT 被非 systemd 进程 pid $holder 占用，清理中..."
+    kill "$holder" 2>/dev/null || true
+    sleep 1
+  done
+}
+
+# 用法：systemd_up start|restart
+systemd_up() {
+  stop_legacy_process
+  info "通过 systemd ${1} 服务（$APP_NAME.service）..."
+  run_systemctl "$1" "$APP_NAME.service"
+  if wait_healthy; then
+    info "✅ 服务已就绪（systemd 管理，日志: journalctl -u $APP_NAME -f）"
+  else
+    fail "健康检查失败，请查看日志：journalctl -u $APP_NAME -n 50 --no-pager"
+  fi
+}
+
+systemd_stop() {
+  run_systemctl stop "$APP_NAME.service"
+  stop_legacy_process
+  info "服务已停止（systemd）"
+}
+
+systemd_status() {
+  run_systemctl status "$APP_NAME.service" --no-pager -n 0 || true
+  curl -s "http://127.0.0.1:$PORT/healthz" && echo
+}
+
+# ── nohup 模式 ───────────────────────────────────────────────
 stop_server() {
   if [ -f "$PID_FILE" ]; then
     local pid
@@ -109,8 +184,7 @@ start_server() {
   info "启动服务（端口 $PORT）..."
   PORT="$PORT" nohup node server-dist/index.mjs >> "$LOG_FILE" 2>&1 &
   echo $! > "$PID_FILE"
-  sleep 1.5
-  if curl -sf "http://127.0.0.1:$PORT/healthz" >/dev/null; then
+  if wait_healthy; then
     info "✅ 服务已就绪：http://0.0.0.0:$PORT  （日志: $LOG_FILE）"
     info "   管理后台：http://<服务器IP>:$PORT/#admin"
   else
@@ -149,9 +223,11 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
-  systemctl enable --now "$APP_NAME"
+  stop_legacy_process
+  systemctl enable "$APP_NAME"
+  systemctl restart "$APP_NAME"
   info "systemd 服务已安装并启动：systemctl status $APP_NAME"
-  warn "systemd 接管后请勿再用 ./deploy.sh start/stop 管理进程"
+  info "此后 ./deploy.sh 的 start/stop/restart/status 会自动改走 systemctl"
 }
 
 print_nginx_hint() {
@@ -181,14 +257,18 @@ case "$ACTION" in
     ensure_env
     install_deps
     build_all
-    stop_server
-    start_server
+    if uses_systemd; then
+      systemd_up restart
+    else
+      stop_server
+      start_server
+    fi
     print_nginx_hint
     ;;
-  start)   start_server ;;
-  stop)    stop_server ;;
-  restart) stop_server; start_server ;;
-  status)  show_status ;;
+  start)   if uses_systemd; then systemd_up start; else start_server; fi ;;
+  stop)    if uses_systemd; then systemd_stop; else stop_server; fi ;;
+  restart) if uses_systemd; then systemd_up restart; else stop_server; start_server; fi ;;
+  status)  if uses_systemd; then systemd_status; else show_status; fi ;;
   systemd) install_systemd ;;
   *) fail "未知动作：$ACTION（支持 deploy|start|stop|restart|status|systemd）" ;;
 esac
